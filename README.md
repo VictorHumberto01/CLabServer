@@ -1,40 +1,118 @@
-# CLab Server
+# 🖥️ CLab Server - Backend Engine
 
-A server for managing programming classrooms, tasks, and code submissions.
+Servidor backend do CLab responsável pela compilação segura de código C, execução em sandbox, integração com IA para feedback educacional e gerenciamento de dados.
 
-## Prerequisites
+![CLab Server](https://img.shields.io/badge/CLab-Server%20Backend-green?style=for-the-badge)
+![Go](https://img.shields.io/badge/Go-1.24+-blue?style=flat-square&logo=go)
 
-- Go 1.24 or higher
-- PostgreSQL 14 or higher
-- GCC compiler (for code execution)
+## 🎯 Visão Geral
 
-## Setup
+O CLab Server é o núcleo do sistema de ensino de programação C, fornecendo:
+- **Compilação segura** de código C em ambiente isolado
+- **Feedback inteligente** via IA local (LLaMA/Ollama)
+- **API REST** para comunicação com o frontend Electron
+- **Gerenciamento de dados** com PostgreSQL
 
-1. Clone the repository:
+## 🏗️ Arquitetura
+
+```
+┌─────────────────────────────────────────────┐
+│              CLab Server                    │
+├─────────────────────────────────────────────┤
+│  🌐 API Gateway (Go)                        │
+│  • Roteamento de requisições               │
+│  • Autenticação e middleware               │
+│  • Rate limiting e validação               │
+├─────────────────────────────────────────────┤
+│  ⚙️ Compiler Service (Go)                   │
+│  • Compilação de código C                  │
+│  • Execução em sandbox                     │
+│  • Captura de stdout/stderr                │
+├─────────────────────────────────────────────┤
+│  🧠 AI Service (Python)                     │
+│  • Integração LLaMA via Ollama             │
+│  • Análise de erros de compilação          │
+│  • Geração de feedback educativo           │
+├─────────────────────────────────────────────┤
+│  💾 Database Service (Go + PostgreSQL)      │
+│  • Gerenciamento de usuários               │
+│  • Armazenamento de tarefas                │
+│  • Histórico de submissões                 │
+└─────────────────────────────────────────────┘
+```
+
+## 📁 Estrutura do Projeto
+
+```
+clab-server/
+├── cmd/
+│   └── server/              
+│       └── main.go             # Ponto de entrada da aplicação
+├── internal/
+│   ├── api/                    # Handlers e rotas da API
+│   │   ├── handlers/           # Controllers REST
+│   │   ├── middleware/         # Middlewares HTTP
+│   │   └── routes/             # Definição de rotas
+│   ├── compiler/               # Serviço de compilação
+│   │   ├── sandbox/            # Sistema de sandbox
+│   │   ├── executor/           # Executor de código C
+│   │   └── validator/          # Validação de código
+│   ├── database/               # Camada de dados
+│   │   ├── migrations/         # Scripts de migração
+│   │   ├── models/             # Modelos de dados
+│   │   └── repositories/       # Repositórios de acesso
+│   ├── ai/                     # Interface com serviço Python
+│   │   ├── client/             # Cliente HTTP para AI service
+│   │   └── types/              # Tipos para comunicação
+│   └── config/                 # Configurações da aplicação
+├── scripts/                    # Scripts utilitários
+└── docker/                     # Configurações Docker
+```
+
+## 🚀 Tecnologias Utilizadas
+
+### Backend Core (Go)
+- **Gin** - Framework web para API REST ✅
+- **Firejail** - Sandbox para execução segura de código ✅
+- **GCC** - Compilador C integrado ✅
+- **PostgreSQL** - Banco de dados ✅
+- **GORM** - ORM para gerenciamento do banco de dados ✅
+
+### AI Service (Python)
+- **FastAPI/Flask** - Framework web para API de IA
+- **Ollama** - Interface para modelos LLaMA
+- **Langchain** - Framework para aplicações com LLM
+- **Pydantic** - Validação de dados
+- **aiohttp** - Cliente HTTP assíncrono
+
+### Segurança & Isolamento
+- **Docker** - Containerização para sandbox
+- **Firejail** - Isolamento adicional de processos
+- **chroot** - Isolamento de filesystem
+- **ulimit** - Limitação de recursos
+
+## ⚡ Quick Start
+
+### Configuração do Ambiente
+
 ```bash
-git clone https://github.com/yourusername/clab-server.git
+# Clone o repositório
+git clone https://github.com/VictorHumberto01/CLabServer.git
 cd clab-server
-```
 
-2. Install dependencies:
-```bash
+# Instale dependências
 go mod download
-```
 
-3. Set up the database:
-```bash
-# Create PostgreSQL database
+# Configure o banco de dados
 createdb clab
-
-# Run migrations
 ./scripts/migrate.sh
 ```
 
-4. Configure environment variables:
-Create a `.env` file in the project root with the following content:
+### Configuração do Ambiente
+Crie um arquivo `.env` na raiz do projeto:
 ```env
 DATABASE_URL=postgres://localhost:5432/clab?sslmode=disable
-JWT_SECRET=your-secret-key
+JWT_SECRET=sua-chave-secreta
 ENV=development
 SERVER_PORT=8080
 COMPILER_PATH=/usr/bin/gcc
@@ -42,17 +120,60 @@ MAX_CODE_SIZE=1048576
 MAX_MEMORY_USAGE=268435456
 ```
 
-## Running the Server
+### Executando o Servidor
 
-### Development Mode
+#### Modo Desenvolvimento
 ```bash
 ./scripts/dev.sh
 ```
 
-### Production Mode
+#### Modo Produção
 ```bash
 ./scripts/prod.sh
 ```
+
+## 🔒 Segurança
+
+### Sistema de Sandbox ✅
+- **Firejail Integration**: Execução isolada quando disponível
+  - `--quiet`: Execução silenciosa
+  - `--net=none`: Sem acesso à rede
+  - `--private=tmpdir`: Filesystem isolado
+- **Modo Inseguro Controlado**: Fallback com confirmação dupla do usuário
+- **Timeout de Execução**: Limite de 3 segundos para prevenir loops infinitos
+- **Diretório Temporário**: Cada execução usa um diretório isolado
+- **Limpeza Automática**: Remoção de arquivos temporários após execução
+
+### Validação de Entrada ✅
+- **JSON Binding**: Validação automática de requests
+- **Timeout Protection**: Processo killado após limite de tempo
+- **Concurrent Safe**: Goroutines para execução não-bloqueante
+
+### Próximas Implementações 🔄
+- **Rate limiting** para prevenir abuse
+- **Validação** de tamanho de código
+- **Filtragem** de comandos perigosos
+- **Logs de auditoria** estruturados
+
+## 🤝 Contribuição
+
+### Estrutura de Commits
+```
+feat: adiciona nova funcionalidade
+fix: corrige bug existente
+docs: atualiza documentação
+test: adiciona ou corrige testes
+refactor: refatora código sem mudar funcionalidade
+perf: melhora performance
+chore: tarefas de manutenção
+```
+
+### Pull Request Guidelines
+1. Fork o repositório
+2. Crie uma branch descritiva
+3. Implemente a funcionalidade com testes
+4. Atualize a documentação se necessário
+5. Submeta o PR com descrição clara
 
 ## API Documentation
 
