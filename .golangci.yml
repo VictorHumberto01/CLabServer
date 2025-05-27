@@ -1,0 +1,260 @@
+linters:
+  enable:
+    - gofmt
+    - golint
+    - govet
+    - errcheck
+    - staticcheck
+    - gosimple
+    - ineffassign
+    - unused
+    - misspell
+    - gosec
+    - goconst
+    - gocyclo
+    - dupl
+    - gocritic
+    - revive
+    - unconvert
+    - unparam
+    - whitespace
+    - prealloc
+    - gocognit
+    - gosec
+    - interfacer
+    - maligned
+    - scopelint
+    - stylecheck
+    - thelper
+    - tparallel
+    - wsl
+
+linters-settings:
+  govet:
+    check-shadowing: true
+  gocyclo:
+    min-complexity: 15
+  dupl:
+    threshold: 100
+  goconst:
+    min-len: 2
+    min-occurrences: 3
+  misspell:
+    locale: US
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - experimental
+      - opinionated
+      - performance
+      - style
+  gosec:
+    excludes:
+      - G104 # Unhandled errors
+      - G107 # URL provided to HTTP request as taint input
+      - G201 # SQL string formatting
+      - G202 # SQL string concatenation
+      - G204 # Subprocess launched with variable
+      - G301 # Poor file permissions used when creating a directory
+      - G302 # Poor file permissions used with chmod
+      - G304 # File path provided as taint input
+      - G401 # Weak crypto
+      - G402 # TLS InsecureSkipVerify set true
+      - G403 # Minimum RSA key length of 2048 bits
+      - G404 # Use of weak random number generator
+      - G501 # Blacklisted import crypto/md5
+      - G502 # Blacklisted import crypto/des
+      - G503 # Blacklisted import crypto/rc4
+      - G504 # Blacklisted import net/http/cgi
+      - G505 # Blacklisted import crypto/sha1
+      - G601 # Implicit memory aliasing in for loop
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - errcheck
+        - dupl
+        - gosec
+        - gocyclo
+        - gocognit
+        - goconst
+        - gocritic
+        - gosec
+        - interfacer
+        - maligned
+        - scopelint
+        - stylecheck
+        - thelper
+        - tparallel
+        - wsl
+    - path: _test\.go
+      text: "weak cryptographic primitive"
+      linters:
+        - gosec
+    - path: _test\.go
+      text: "potential hardcoded credentials"
+      linters:
+        - gosec
+    - path: _test\.go
+      text: "potential file inclusion via variable"
+      linters:
+        - gosec
+    - path: _test\.go
+      text: "potential directory traversal"
+      linters:
+        - gosec
+    - path: _test\.go
+      text: "potential SQL injection"
+      linters:
+        - gosec
+    - path: _test\.go
+      text: "potential command injection"
+      linters:
+        - gosec
+    - path: _test\.go
+      text: "potential integer overflow"
+      linters:
+        - gosec
+    - path: _test\.go
+      text: "potential memory leak"
+      linters:
+        - gosec
+    - path: _test\.go
+      text: "potential race condition"
+      linters:
+        - gosec
+    - path: _test\.go
+      text: "potential deadlock"
+      linters:
+        - gosec
+    - path: _test\.go
+      text: "potential nil pointer dereference"
+      linters:
+        - gosec
+    - path: _test\.go
+      text: "potential infinite loop"
+      linters:
+        - gosec
+    - path: _test\.go
+      text: "potential resource leak"
+      linters:
+        - gosec
+    - path: _test\.go
+      text: "potential buffer overflow"
+      linters:
+        - gosec
+    - path: _test\.go
+      text: "potential format string vulnerability"
+      linters:
+        - gosec
+    - path: _test\.go
+      text: "potential integer overflow"
+      linters:
+        - gosec
+    - path: _test\.go
+      text: "potential memory leak"
+      linters:
+        - gosec
+    - path: _test\.go
+      text: "potential race condition"
+      linters:
+        - gosec
+    - path: _test\.go
+      text: "potential deadlock"
+      linters:
+        - gosec
+    - path: _test\.go
+      text: "potential nil pointer dereference"
+      linters:
+        - gosec
+    - path: _test\.go
+      text: "potential infinite loop"
+      linters:
+        - gosec
+    - path: _test\.go
+      text: "potential resource leak"
+      linters:
+        - gosec
+    - path: _test\.go
+      text: "potential buffer overflow"
+      linters:
+        - gosec
+    - path: _test\.go
+      text: "potential format string vulnerability"
+      linters:
+        - gosec
+
+run:
+  deadline: 5m
+  tests: true
+  skip-dirs:
+    - vendor
+    - tmp
+    - bin
+    - .git
+    - node_modules
+    - dist
+    - build
+    - coverage
+    - .github
+    - .gitlab
+    - .vscode
+    - .idea
+    - .DS_Store
+    - .gitignore
+    - .env
+    - .env.example
+    - .air.toml
+    - .golangci.yml
+    - README.md
+    - LICENSE
+    - CHANGELOG.md
+    - CONTRIBUTING.md
+    - CODE_OF_CONDUCT.md
+    - SECURITY.md
+    - SUPPORT.md
+    - docs
+    - examples
+    - scripts
+    - tools
+    - migrations
+    - seeds
+    - fixtures
+    - testdata
+    - test
+    - tests
+    - _test
+    - _tests
+    - _testdata
+    - _fixtures
+    - _migrations
+    - _seeds
+    - _tools
+    - _scripts
+    - _docs
+    - _examples
+    - _build
+    - _dist
+    - _coverage
+    - _tmp
+    - _vendor
+    - _node_modules
+    - _git
+    - _github
+    - _gitlab
+    - _vscode
+    - _idea
+    - _ds_store
+    - _gitignore
+    - _env
+    - _env_example
+    - _air_toml
+    - _golangci_yml
+    - _readme_md
+    - _license
+    - _changelog_md
+    - _contributing_md
+    - _code_of_conduct_md
+    - _security_md
+    - _support_md 
