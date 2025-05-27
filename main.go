@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -81,13 +82,134 @@ type CompileResult struct {
 	Error  string `json:"error,omitempty"`
 }
 
-func compileAndRun(code string, input string, resultChan chan CompileResult) {
+type CodeAnalysis struct {
+	Elements    []CodeElement `json:"elements"`
+	Suggestions []string      `json:"suggestions"`
+	AIAnalysis  string        `json:"aiAnalysis"`
+}
+
+type CodeElement struct {
+	Element     string `json:"element"`
+	Description string `json:"description"`
+}
+
+type CompileResponse struct {
+	Output   string `json:"output"`
+	Error    string `json:"error,omitempty"`
+	Analysis string `json:"analysis"`
+}
+
+// Add this function to get AI analysis for successful compilation
+func getAIAnalysis(code string) (string, error) {
+	prompt := fmt.Sprintf(`Analise este código C e forneça uma explicação detalhada em português.
+Você é um professor experiente explicando o código para um aluno.
+
+Código para análise:
+%s
+
+Formate sua resposta exatamente assim:
+===Analysis===
+# Análise Detalhada do Código
+
+Este programa foi criado para [explicar o propósito]. Vamos analisar cada parte:
+
+## Estrutura Básica
+[explicar a estrutura do código]
+
+## Bibliotecas e Funções
+[explicar as bibliotecas e funções usadas]
+
+## Funcionamento
+[explicar como o código funciona]
+
+## Sugestões de Melhoria
+[listar sugestões de melhoria]
+
+## Dicas de Aprendizado
+[incluir dicas educacionais]`, code)
+
+	return callOllamaAPI(prompt)
+}
+
+// Add this function to get AI analysis for compilation errors
+func getErrorAnalysis(code string, errorMessage string) (string, error) {
+	prompt := fmt.Sprintf(`Analise este código C que teve erro de compilação e explique detalhadamente o problema em português.
+Você é um professor experiente ajudando um aluno a entender e corrigir erros.
+
+Código com erro:
+%s
+
+Mensagem de erro do compilador:
+%s
+
+Formate sua resposta exatamente assim:
+===Analysis===
+# Análise do Erro de Compilação
+
+## 🚫 Erro Encontrado
+[explicar claramente qual foi o erro]
+
+## 🔍 Causa do Problema
+[explicar por que o erro aconteceu]
+
+## 📚 Conceitos Importantes
+[explicar os conceitos de C que o usuário precisa entender]
+
+## ✅ Como Corrigir
+[mostrar como corrigir o erro com exemplos]
+
+## 💡 Dicas para Evitar
+[dar dicas para evitar erros similares no futuro]
+
+## 📖 Exemplo Correto
+[mostrar um exemplo de código corrigido se possível]`, code, errorMessage)
+
+	return callOllamaAPI(prompt)
+}
+
+// Helper function to call Ollama API
+func callOllamaAPI(prompt string) (string, error) {
+	payload := map[string]interface{}{
+		"model":       "phi3",
+		"system":      "Você é um professor experiente de programação C, explicando conceitos para um aluno de forma didática e clara.",
+		"prompt":      prompt,
+		"stream":      false,
+		"temperature": 0.5,
+		"top_p":       0.9,
+	}
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("error marshaling request: %v", err)
+	}
+
+	resp, err := http.Post("http://localhost:11434/api/generate",
+		"application/json",
+		bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "", fmt.Errorf("error calling Ollama API: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("error decoding response: %v", err)
+	}
+
+	response, ok := result["response"].(string)
+	if !ok {
+		return "", fmt.Errorf("invalid response format from Ollama")
+	}
+
+	return response, nil
+}
+
+func compileAndRun(code string) CompileResponse {
 	log.Println("Starting compilation process")
 	tmpDir, err := os.MkdirTemp("", "ccompile")
 	if err != nil {
 		log.Printf("Failed to create temp directory: %v", err)
-		resultChan <- CompileResult{Error: "failed to create temp dir"}
-		return
+		return CompileResponse{Error: "failed to create temp dir"}
 	}
 	defer os.RemoveAll(tmpDir)
 	log.Printf("Created temporary directory: %s", tmpDir)
@@ -98,8 +220,7 @@ func compileAndRun(code string, input string, resultChan chan CompileResult) {
 	// Escreve o código
 	if err := os.WriteFile(srcPath, []byte(code), 0644); err != nil {
 		log.Printf("Failed to write source file: %v", err)
-		resultChan <- CompileResult{Error: "failed to write source"}
-		return
+		return CompileResponse{Error: "failed to write source"}
 	}
 	log.Printf("Source code written to: %s", srcPath)
 
@@ -108,11 +229,26 @@ func compileAndRun(code string, input string, resultChan chan CompileResult) {
 	compileCmd.Dir = tmpDir
 	log.Printf("Compiling with command: gcc %s -o %s", srcPath, binPath)
 	compileOut, err := compileCmd.CombinedOutput()
+
+	// Se houve erro de compilação, retorna com análise do erro
 	if err != nil {
 		log.Printf("Compilation failed: %v\nOutput: %s", err, string(compileOut))
-		resultChan <- CompileResult{Error: "Compilation error: " + string(compileOut)}
-		return
+
+		// Gera análise do erro
+		errorAnalysis, analysisErr := getErrorAnalysis(code, string(compileOut))
+		if analysisErr != nil {
+			log.Printf("Error analysis failed: %v", analysisErr)
+			errorAnalysis = "===Analysis===\n# Análise do Erro\n\nDesculpe, não foi possível gerar a análise detalhada do erro neste momento. Por favor, verifique a mensagem de erro do compilador acima."
+		} else {
+			log.Printf("Error analysis generated:\n%s", errorAnalysis)
+		}
+
+		return CompileResponse{
+			Error:    "Compilation error: " + string(compileOut),
+			Analysis: errorAnalysis,
+		}
 	}
+
 	log.Println("Compilation successful")
 
 	// Check if firejail is available
@@ -127,19 +263,25 @@ func compileAndRun(code string, input string, resultChan chan CompileResult) {
 			execCmd = exec.Command("./program")
 		} else {
 			log.Println("Execution skipped: unsecure mode not allowed by user")
-			resultChan <- CompileResult{
-				Output: "Compilation successful, but execution was skipped because firejail is not available and unsecure mode is disabled.",
-				Error:  "execution disabled: firejail not available and unsecure mode not allowed",
+
+			// Mesmo sem execução, gera análise do código compilado com sucesso
+			analysis, err := getAIAnalysis(code)
+			if err != nil {
+				log.Printf("AI analysis error: %v", err)
+				analysis = "===Analysis===\n# Análise do Código\n\nDesculpe, não foi possível gerar a análise neste momento. Por favor, tente novamente."
+			} else {
+				log.Printf("AI Analysis generated:\n%s", analysis)
 			}
-			return
+
+			return CompileResponse{
+				Output:   "Compilation successful, but execution was skipped because firejail is not available and unsecure mode is disabled.",
+				Error:    "execution disabled: firejail not available and unsecure mode not allowed",
+				Analysis: analysis,
+			}
 		}
 	}
 
 	execCmd.Dir = tmpDir
-	if input != "" {
-		execCmd.Stdin = bytes.NewBufferString(input)
-		log.Printf("Providing input to program: %s", input)
-	}
 
 	var output bytes.Buffer
 	execCmd.Stdout = &output
@@ -153,19 +295,48 @@ func compileAndRun(code string, input string, resultChan chan CompileResult) {
 
 	select {
 	case err := <-done:
+		// Sempre gera análise, independente se a execução foi bem-sucedida ou não
+		analysis, analysisErr := getAIAnalysis(code)
+		if analysisErr != nil {
+			log.Printf("AI analysis error: %v", analysisErr)
+			analysis = "===Analysis===\n# Análise do Código\n\nDesculpe, não foi possível gerar a análise neste momento. Por favor, tente novamente."
+		} else {
+			log.Printf("AI Analysis generated:\n%s", analysis)
+		}
+
 		if err != nil {
 			log.Printf("Program execution failed: %v", err)
-			resultChan <- CompileResult{Output: output.String(), Error: "execution failed: " + err.Error()}
+			return CompileResponse{
+				Output:   output.String(),
+				Error:    "execution failed: " + err.Error(),
+				Analysis: analysis,
+			}
 		} else {
 			log.Println("Program execution completed successfully")
-			resultChan <- CompileResult{Output: output.String()}
+			return CompileResponse{
+				Output:   output.String(),
+				Analysis: analysis,
+			}
 		}
 	case <-time.After(3 * time.Second):
 		log.Println("Program execution timed out")
 		if execCmd.Process != nil {
 			execCmd.Process.Kill()
 		}
-		resultChan <- CompileResult{Error: "execution timeout"}
+
+		// Gera análise mesmo em caso de timeout
+		analysis, err := getAIAnalysis(code)
+		if err != nil {
+			log.Printf("AI analysis error: %v", err)
+			analysis = "===Analysis===\n# Análise do Código\n\nDesculpe, não foi possível gerar a análise neste momento. Por favor, tente novamente."
+		} else {
+			log.Printf("AI Analysis generated:\n%s", analysis)
+		}
+
+		return CompileResponse{
+			Error:    "execution timeout",
+			Analysis: analysis,
+		}
 	}
 }
 
@@ -187,12 +358,8 @@ func main() {
 		}
 
 		log.Printf("Received compile request with %d bytes of code", len(req.Code))
-		resultChan := make(chan CompileResult)
-		go compileAndRun(req.Code, req.Input, resultChan)
+		result := compileAndRun(req.Code)
 
-		result := <-resultChan
-		log.Printf("Compilation result: output=%d bytes, error=%v",
-			len(result.Output), result.Error != "")
 		c.JSON(http.StatusOK, result)
 	})
 
