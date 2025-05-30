@@ -106,7 +106,7 @@ clab-server/
 
 ```bash
 # Clone o repositório
-git clone https://github.com/seu-usuario/clab-server.git
+git clone https://github.com/VictorHumberto01/clab-server.git
 cd clab-server
 
 # Instale dependências
