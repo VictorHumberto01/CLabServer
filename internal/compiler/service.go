@@ -20,11 +20,9 @@ func init() {
 	securityManager = security.NewSecurityManager()
 }
 
-// CompileAndRun compiles and runs the given C code with security measures
 func CompileAndRun(req models.CompileRequest) models.CompileResponse {
 	log.Println("Starting compilation process")
 
-	// Create temporary directory
 	tmpDir, err := os.MkdirTemp("", "ccompile")
 	if err != nil {
 		log.Printf("Failed to create temp directory: %v", err)
@@ -36,14 +34,12 @@ func CompileAndRun(req models.CompileRequest) models.CompileResponse {
 	srcPath := filepath.Join(tmpDir, "program.c")
 	binPath := filepath.Join(tmpDir, "program")
 
-	// Write the source code
 	if err := os.WriteFile(srcPath, []byte(req.Code), 0644); err != nil {
 		log.Printf("Failed to write source file: %v", err)
 		return models.CompileResponse{Error: "failed to write source"}
 	}
 	log.Printf("Source code written to: %s", srcPath)
 
-	// Compile with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -52,7 +48,6 @@ func CompileAndRun(req models.CompileRequest) models.CompileResponse {
 	log.Printf("Compiling with command: gcc %s -o %s -Wall -Wextra", srcPath, binPath)
 	compileOut, err := compileCmd.CombinedOutput()
 
-	// Handle compilation errors
 	if err != nil {
 		log.Printf("Compilation failed: %v\nOutput: %s", err, string(compileOut))
 
@@ -68,7 +63,6 @@ func CompileAndRun(req models.CompileRequest) models.CompileResponse {
 		}
 	}
 
-	// Validate executable before running
 	if err := securityManager.ValidateExecutable(binPath); err != nil {
 		log.Printf("Executable validation failed: %v", err)
 		return models.CompileResponse{
@@ -76,41 +70,30 @@ func CompileAndRun(req models.CompileRequest) models.CompileResponse {
 		}
 	}
 
-	// Determine timeout
 	timeout := 10 * time.Second
 	if req.TimeoutSecs > 0 && req.TimeoutSecs <= 30 {
 		timeout = time.Duration(req.TimeoutSecs) * time.Second
 	}
 
-	// Run the program with security measures and input handling
 	runCtx, runCancel := context.WithTimeout(context.Background(), timeout)
 	defer runCancel()
 
 	var runCmd *exec.Cmd
-	// Access IsCommandAvailable via package if it was exported, or check capabilities via manager
-	// Since ISCommandAvailable was moved to security package we can use it directly
+
+	var cmdBuilder strings.Builder
+	cmdBuilder.WriteString("ulimit -v 131072; ") // Limit virtual memory to 128MB
+
 	if security.IsCommandAvailable("firejail") {
-		// Use firejail for sandboxing
-		runCmd = exec.CommandContext(runCtx, "firejail",
-			"--quiet",
-			"--noprofile",
-			"--seccomp",
-			"--nonetwork",
-			"--private-tmp",
-			"--noroot",
-			"--caps.drop=all",
-			"--rlimit-cpu=10",
-			"--rlimit-as=134217728", // 128MB
-			binPath)
+		cmdBuilder.WriteString("firejail --quiet --noprofile --seccomp --nonetwork --private-tmp --noroot --caps.drop=all --rlimit-cpu=10 ")
+		cmdBuilder.WriteString(binPath)
 	} else {
-		// Fallback to basic execution
 		log.Println("Warning: Running without sandboxing")
-		runCmd = exec.CommandContext(runCtx, binPath)
+		cmdBuilder.WriteString(binPath)
 	}
 
+	runCmd = exec.CommandContext(runCtx, "/bin/sh", "-c", cmdBuilder.String())
 	runCmd.Dir = tmpDir
 
-	// Prepare input data
 	var inputData string
 	if len(req.InputLines) > 0 {
 		inputData = strings.Join(req.InputLines, "\n") + "\n"
@@ -123,7 +106,6 @@ func CompileAndRun(req models.CompileRequest) models.CompileResponse {
 		log.Printf("Using single input: %q", req.Input)
 	}
 
-	// Handle input if provided
 	if inputData != "" {
 		runCmd.Stdin = strings.NewReader(inputData)
 	}
@@ -143,7 +125,6 @@ func CompileAndRun(req models.CompileRequest) models.CompileResponse {
 		}
 	}
 
-	// Generate AI analysis for successful compilation
 	analysis, err := ai.GetAIAnalysis(req.Code)
 	if err != nil {
 		log.Printf("AI analysis failed: %v", err)
