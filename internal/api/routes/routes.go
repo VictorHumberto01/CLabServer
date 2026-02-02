@@ -26,4 +26,12 @@ func SetupRoutes(r *gin.Engine) {
 	r.POST("/login", handlers.LoginWithToken)
 	r.POST("/login/cookie", handlers.LoginWithCookie)
 	r.GET("/validate", middleware.RequireAuth, handlers.Validate)
+
+	classrooms := r.Group("/classrooms")
+	classrooms.Use(middleware.RequireAuth)
+	{
+		classrooms.POST("", handlers.CreateClassroom)
+		classrooms.GET("", handlers.ListClassrooms)
+		classrooms.POST("/:id/students", handlers.AddStudent)
+	}
 }

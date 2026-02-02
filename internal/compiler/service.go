@@ -120,7 +120,7 @@ func CompileAndRun(req models.CompileRequest) models.CompileResponse {
 		}
 
 		return models.CompileResponse{
-			Error:    "Execution error: " + errorMsg,
+			Error:    errorMsg,
 			Analysis: "===Analysis===\n# Erro de Execução\n\nO programa compilou com sucesso, mas encontrou um erro durante a execução. Verifique a divisão por zero, acesso a memória inválida, ou loops infinitos.",
 		}
 	}

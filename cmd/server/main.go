@@ -56,12 +56,25 @@ func main() {
 
 	log.Printf("🚀 Server starting on port %s", port)
 	log.Println("📡 Endpoints available:")
-	log.Println("   GET  /health  - Health check")
-	log.Println("   POST /compile - Compile and run C code")
-	log.Println("   POST /signup - Sign up")
-	log.Println("   POST /login - Login")
-	log.Println("   POST /login/cookie - Login with cookie")
-	log.Println("   GET /validate - Validate token")
+	endpoints := []struct {
+		method string
+		path   string
+		desc   string
+	}{
+		{"GET", "/health", "Health check"},
+		{"POST", "/compile", "Compile and run C code"},
+		{"POST", "/signup", "Sign up"},
+		{"POST", "/login", "Login"},
+		{"POST", "/login/cookie", "Login with cookie"},
+		{"GET", "/validate", "Validate token"},
+		{"POST", "/classrooms", "Create classroom"},
+		{"GET", "/classrooms", "List classrooms"},
+		{"POST", "/classrooms/:id/students", "Add student to classroom"},
+	}
+
+	for _, e := range endpoints {
+		log.Printf("   %s %s - %s", e.method, e.path, e.desc)
+	}
 
 	if err := r.Run(":" + port); err != nil {
 		log.Fatal("Failed to start server:", err)
