@@ -1,4 +1,4 @@
-package api
+package handlers
 
 import (
 	"fmt"
@@ -7,32 +7,12 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/vitub/CLabServer/pkg/compiler"
-	"github.com/vitub/CLabServer/pkg/models"
+	"github.com/vitub/CLabServer/internal/compiler"
+	"github.com/vitub/CLabServer/internal/models"
 )
 
-// SetupRoutes configures all the routes for the API
-func SetupRoutes(r *gin.Engine) {
-	// Add middleware for logging
-	r.Use(gin.Logger())
-	r.Use(gin.Recovery())
-
-	// Health check endpoint
-	r.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
-	})
-
-	// Compilation endpoint
-	r.POST("/compile", handleCompile)
-
-	// CORS preflight
-	r.OPTIONS("/compile", func(c *gin.Context) {
-		c.Status(http.StatusOK)
-	})
-}
-
-// handleCompile handles the compilation request
-func handleCompile(c *gin.Context) {
+// HandleCompile handles the compilation request
+func HandleCompile(c *gin.Context) {
 	var req models.CompileRequest
 
 	if err := c.ShouldBindJSON(&req); err != nil {

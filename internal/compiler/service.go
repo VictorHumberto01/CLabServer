@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vitub/CLabServer/pkg/ai"
-	"github.com/vitub/CLabServer/pkg/models"
-	"github.com/vitub/CLabServer/pkg/security"
+	"github.com/vitub/CLabServer/internal/ai"
+	"github.com/vitub/CLabServer/internal/models"
+	"github.com/vitub/CLabServer/internal/security"
 )
 
 var securityManager *security.SecurityManager
@@ -87,6 +87,8 @@ func CompileAndRun(req models.CompileRequest) models.CompileResponse {
 	defer runCancel()
 
 	var runCmd *exec.Cmd
+	// Access IsCommandAvailable via package if it was exported, or check capabilities via manager
+	// Since ISCommandAvailable was moved to security package we can use it directly
 	if security.IsCommandAvailable("firejail") {
 		// Use firejail for sandboxing
 		runCmd = exec.CommandContext(runCtx, "firejail",
@@ -137,7 +139,7 @@ func CompileAndRun(req models.CompileRequest) models.CompileResponse {
 
 		return models.CompileResponse{
 			Error:    "Execution error: " + errorMsg,
-			Analysis: "===Analysis===\n# Erro de Execução\n\nO programa compilou com sucesso, mas encontrou um erro durante a execução. Verifique se há problemas como divisão por zero, acesso a memória inválida, ou loops infinitos.",
+			Analysis: "===Analysis===\n# Erro de Execução\n\nO programa compilou com sucesso, mas encontrou um erro durante a execução. Verifique a divisão por zero, acesso a memória inválida, ou loops infinitos.",
 		}
 	}
 

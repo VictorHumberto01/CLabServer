@@ -75,7 +75,6 @@ Formate sua resposta exatamente assim:
 	return callOllamaAPI(prompt)
 }
 
-// callOllamaAPI makes a request to the Ollama API
 func callOllamaAPI(prompt string) (string, error) {
 	payload := map[string]interface{}{
 		"model":       "phi3",

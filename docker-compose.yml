@@ -1,0 +1,22 @@
+services:
+  server:
+    build: .
+    container_name: clab-server
+    ports:
+      - "8080:8080"
+    # Firejail requires some privileges to create namespaces and sandboxing
+    # We use cap_add to give just enough, or privileged if necessary.
+    # SYS_ADMIN is usually required for user namespaces.
+    cap_add:
+      - SYS_ADMIN
+      - SYS_PTRACE
+    # AppArmor/Seccomp profiles might interfere with Firejail's own sandboxing
+    security_opt:
+      - apparmor:unconfined
+      - seccomp:unconfined
+    environment:
+      - PORT=8080
+      - GIN_MODE=release
+    restart: unless-stopped
+    volumes:
+      - ./tmp_debug:/tmp/clab-debug # Optional: mapped volume for debugging if needed

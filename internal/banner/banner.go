@@ -2,7 +2,6 @@ package banner
 
 import "fmt"
 
-// PrintBanner displays the cLab ASCII art banner
 func PrintBanner() {
 	banner := `
     ____          _       ____                           
@@ -12,9 +11,9 @@ func PrintBanner() {
  \____|_____\__,_|_.__/  |____/ \___|_|    \_/ \___|_|    
 
 
+
+  VER 0.0.1-INDEV
   
-                                
-  C Language Learning Assistant
   ============================
 `
 	fmt.Println(banner)
