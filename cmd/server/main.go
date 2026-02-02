@@ -8,10 +8,19 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/vitub/CLabServer/internal/api/routes"
 	"github.com/vitub/CLabServer/internal/banner"
+	"github.com/vitub/CLabServer/internal/initializers"
 	"github.com/vitub/CLabServer/internal/security"
 )
 
 func main() {
+	// Initialize Environment Variables
+	initializers.LoadEnvVariables()
+
+	// Initialize Database
+	if err := initializers.ConnectToDB(); err != nil {
+		log.Fatal("Failed to connect to database: ", err)
+	}
+
 	banner.PrintBanner()
 
 	if !security.IsCommandAvailable("gcc") {
@@ -49,6 +58,10 @@ func main() {
 	log.Println("📡 Endpoints available:")
 	log.Println("   GET  /health  - Health check")
 	log.Println("   POST /compile - Compile and run C code")
+	log.Println("   POST /signup - Sign up")
+	log.Println("   POST /login - Login")
+	log.Println("   POST /login/cookie - Login with cookie")
+	log.Println("   GET /validate - Validate token")
 
 	if err := r.Run(":" + port); err != nil {
 		log.Fatal("Failed to start server:", err)

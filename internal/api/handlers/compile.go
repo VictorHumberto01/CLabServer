@@ -11,7 +11,6 @@ import (
 	"github.com/vitub/CLabServer/internal/models"
 )
 
-// HandleCompile handles the compilation request
 func HandleCompile(c *gin.Context) {
 	var req models.CompileRequest
 
@@ -23,7 +22,6 @@ func HandleCompile(c *gin.Context) {
 		return
 	}
 
-	// Basic validation
 	if strings.TrimSpace(req.Code) == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": "Code cannot be empty",
@@ -31,7 +29,6 @@ func HandleCompile(c *gin.Context) {
 		return
 	}
 
-	// Validate timeout
 	if req.TimeoutSecs > 30 {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": "Timeout cannot exceed 30 seconds",
@@ -39,7 +36,6 @@ func HandleCompile(c *gin.Context) {
 		return
 	}
 
-	// Log the compilation request
 	inputInfo := ""
 	if len(req.InputLines) > 0 {
 		inputInfo = fmt.Sprintf(", input lines: %d", len(req.InputLines))
@@ -48,7 +44,6 @@ func HandleCompile(c *gin.Context) {
 	}
 	log.Printf("Received compilation request, code length: %d%s", len(req.Code), inputInfo)
 
-	// Compile and run
 	response := compiler.CompileAndRun(req)
 
 	// Log the response

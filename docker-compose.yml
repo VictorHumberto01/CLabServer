@@ -17,6 +17,25 @@ services:
     environment:
       - PORT=8080
       - GIN_MODE=release
+      - DATABASE_URL=host=db user=user password=password dbname=clab port=5432 sslmode=disable
+      - JWT_SECRET=secret
+    depends_on:
+      - db
     restart: unless-stopped
     volumes:
       - ./tmp_debug:/tmp/clab-debug # Optional: mapped volume for debugging if needed
+
+  db:
+    image: postgres:alpine
+    container_name: clab-db
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=clab
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:

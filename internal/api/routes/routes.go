@@ -5,24 +5,25 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/vitub/CLabServer/internal/api/handlers"
+	"github.com/vitub/CLabServer/internal/api/middleware"
 )
 
-// SetupRoutes configures all the routes for the API
 func SetupRoutes(r *gin.Engine) {
-	// Add middleware for logging
 	r.Use(gin.Logger())
 	r.Use(gin.Recovery())
 
-	// Health check endpoint
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
-	// Compilation endpoint
 	r.POST("/compile", handlers.HandleCompile)
 
-	// CORS preflight
 	r.OPTIONS("/compile", func(c *gin.Context) {
 		c.Status(http.StatusOK)
 	})
+
+	r.POST("/signup", handlers.SignUp)
+	r.POST("/login", handlers.LoginWithToken)
+	r.POST("/login/cookie", handlers.LoginWithCookie)
+	r.GET("/validate", middleware.RequireAuth, handlers.Validate)
 }
