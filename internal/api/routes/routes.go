@@ -22,7 +22,6 @@ func SetupRoutes(r *gin.Engine) {
 		c.Status(http.StatusOK)
 	})
 
-	r.POST("/signup", handlers.SignUp)
 	r.POST("/login", handlers.LoginWithToken)
 	r.POST("/login/cookie", handlers.LoginWithCookie)
 	r.GET("/validate", middleware.RequireAuth, handlers.Validate)
@@ -33,12 +32,25 @@ func SetupRoutes(r *gin.Engine) {
 		classrooms.POST("", handlers.CreateClassroom)
 		classrooms.GET("", handlers.ListClassrooms)
 		classrooms.POST("/:id/students", handlers.AddStudent)
+		classrooms.DELETE("/:id/students/:studentId", handlers.RemoveStudent)
+		classrooms.DELETE("/:id", handlers.DeleteClassroom)
+		classrooms.POST("/:id/topics", handlers.CreateTopic)
+		classrooms.GET("/:id/topics", handlers.ListTopics)
+		classrooms.POST("/:id/exercises", handlers.CreateExercise)
+		classrooms.GET("/:id/exercises", handlers.ListExercises)
 	}
 
 	history := r.Group("/history")
 	history.Use(middleware.RequireAuth)
 	{
 		history.GET("", handlers.ListHistory)
+	}
+
+	users := r.Group("/users")
+	users.Use(middleware.RequireAuth)
+	{
+		users.POST("", handlers.CreateUser)
+		users.GET("", handlers.ListUsers)
 	}
 
 }

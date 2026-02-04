@@ -43,10 +43,9 @@ func main() {
 	}
 	r := gin.Default()
 	config := cors.DefaultConfig()
-	config.AllowOrigins = []string{"*"}
+	config.AllowAllOrigins = true
 	config.AllowMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}
 	config.AllowHeaders = []string{"Origin", "Content-Type", "Accept", "Authorization"}
-	config.AllowCredentials = true
 	r.Use(cors.New(config))
 
 	hub := ws.NewHub()

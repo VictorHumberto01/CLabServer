@@ -25,6 +25,8 @@ func ListHistory(c *gin.Context) {
 	pageVal := c.DefaultQuery("page", "1")
 	limitVal := c.DefaultQuery("limit", "10")
 	search := c.Query("search")
+	filterUserID := c.Query("user_id")
+	filterClassroomID := c.Query("classroomId")
 
 	page := 1
 	limit := 10
@@ -41,10 +43,27 @@ func ListHistory(c *gin.Context) {
 	var history []models.History
 	var total int64
 
-	query := initializers.DB.Model(&models.History{}).Where("user_id = ?", u.ID)
+	// Preload Exercise as well since we might be showing exercise titles
+	query := initializers.DB.Model(&models.History{}).Preload("User").Preload("Exercise")
+
+	// If not admin/teacher, restrict to own history
+	if u.Role != "ADMIN" && u.Role != "TEACHER" {
+		query = query.Where("histories.user_id = ?", u.ID)
+	} else {
+		// Admin/Teacher can filter by specific user if provided
+		if filterUserID != "" {
+			query = query.Where("histories.user_id = ?", filterUserID)
+		}
+	}
+
+	if filterClassroomID != "" {
+		// Join with exercises to filter by classroom
+		query = query.Joins("JOIN exercises ON exercises.id = histories.exercise_id").
+			Where("exercises.classroom_id = ?", filterClassroomID)
+	}
 
 	if search != "" {
-		query = query.Where("code LIKE ?", "%"+search+"%")
+		query = query.Where("histories.code LIKE ?", "%"+search+"%")
 	}
 
 	query.Count(&total)

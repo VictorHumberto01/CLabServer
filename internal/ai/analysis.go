@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"regexp"
+	"strings"
 )
 
 func getOllamaURL() string {
@@ -96,6 +98,52 @@ Como evitar esse erro no futuro.`, code, errorMessage)
 	return callAI(prompt)
 }
 
+type GradingResult struct {
+	Passed   bool   `json:"passed"`
+	Feedback string `json:"feedback"`
+}
+
+func GetGradingAnalysis(code string, output string, expectedOutput string) (GradingResult, error) {
+	prompt := fmt.Sprintf(`Você é um professor de programação C. Compare a saída do programa do aluno com a saída esperada.
+Se a saída for funcionalmente igual (ignorando espaços em branco no final ou diferenças minúsculas de formatação não críticas), considere como correto.
+Analise também a qualidade do código.
+
+CODIGO:
+%s
+
+SAIDA REAL:
+%s
+
+SAIDA ESPERADA:
+%s
+
+RESPONDA APENAS UM JSON VÁLIDO (sem markdown, sem explicações extras) neste formato:
+{
+	"passed": boolean,
+	"feedback": "string explicando o resultado e dicas"
+}`, code, output, expectedOutput)
+
+	response, err := callAI(prompt)
+	if err != nil {
+		return GradingResult{}, err
+	}
+
+	var result GradingResult
+
+	if len(response) > 3 && response[:3] == "```" {
+	}
+
+	cleanResponse := response
+
+	cleanResponse = removeMarkdown(cleanResponse)
+
+	if err := json.Unmarshal([]byte(cleanResponse), &result); err != nil {
+		return GradingResult{Passed: false, Feedback: "Erro ao processar resposta da IA: " + response}, nil
+	}
+
+	return result, nil
+}
+
 func callAI(prompt string) (string, error) {
 	provider := getAIProvider()
 
@@ -142,6 +190,15 @@ func callOllamaAPI(prompt string) (string, error) {
 	}
 
 	return response, nil
+}
+
+func removeMarkdown(text string) string {
+	re := regexp.MustCompile("(?s)```(?:json)?(.*?)```")
+	matches := re.FindStringSubmatch(text)
+	if len(matches) > 1 {
+		return strings.TrimSpace(matches[1])
+	}
+	return strings.TrimSpace(text)
 }
 
 func callGroqAPI(prompt string) (string, error) {

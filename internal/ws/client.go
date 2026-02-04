@@ -15,6 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/vitub/CLabServer/internal/ai"
+	"github.com/vitub/CLabServer/internal/initializers"
 	"github.com/vitub/CLabServer/internal/models"
 )
 
@@ -39,9 +40,10 @@ type Client struct {
 	conn *websocket.Conn
 	send chan []byte
 
-	UserID string
-	Role   string
-	Name   string
+	UserID   string
+	UserDBID uint
+	Role     string
+	Name     string
 
 	mu      sync.Mutex
 	ptyFile *os.File
@@ -49,10 +51,11 @@ type Client struct {
 }
 
 type WSMsg struct {
-	Type    string `json:"type"`
-	Payload string `json:"payload"`
-	Rows    int    `json:"rows,omitempty"`
-	Cols    int    `json:"cols,omitempty"`
+	Type       string `json:"type"`
+	Payload    string `json:"payload"`
+	Rows       int    `json:"rows,omitempty"`
+	Cols       int    `json:"cols,omitempty"`
+	ExerciseID uint   `json:"exerciseId,omitempty"`
 }
 
 type MonitorMsg struct {
@@ -120,7 +123,7 @@ func (c *Client) readPump() {
 				c.cmd.Process.Kill()
 			}
 			c.mu.Unlock()
-			go c.startCompilationAndRun(msg.Payload)
+			go c.startCompilationAndRun(msg.Payload, msg.ExerciseID)
 		case "stop":
 			c.mu.Lock()
 			if c.cmd != nil && c.cmd.Process != nil {
@@ -178,10 +181,13 @@ func ServeWs(hub *Hub, c *gin.Context) {
 	}
 
 	user, exists := c.Get("user")
-	var userID, role, name string
+	var userID string
+	var userDBID uint
+	var role, name string
 	if exists {
 		u := user.(models.User)
-		userID = string(rune(u.ID))
+		userID = fmt.Sprintf("%d", u.ID)
+		userDBID = u.ID
 		role = u.Role
 		name = u.Name
 	} else {
@@ -191,12 +197,13 @@ func ServeWs(hub *Hub, c *gin.Context) {
 	}
 
 	client := &Client{
-		Hub:    hub,
-		conn:   conn,
-		send:   make(chan []byte, 256),
-		UserID: userID,
-		Role:   role,
-		Name:   name,
+		Hub:      hub,
+		conn:     conn,
+		send:     make(chan []byte, 256),
+		UserID:   userID,
+		UserDBID: userDBID,
+		Role:     role,
+		Name:     name,
 	}
 	client.Hub.register <- client
 
@@ -204,7 +211,7 @@ func ServeWs(hub *Hub, c *gin.Context) {
 	go client.readPump()
 }
 
-func (c *Client) startCompilationAndRun(code string) {
+func (c *Client) startCompilationAndRun(code string, exerciseID uint) {
 	c.broadcastMonitor("compile_start", "Starting compilation...")
 
 	tmpDir, err := os.MkdirTemp("", "cws")
@@ -242,6 +249,7 @@ func (c *Client) startCompilationAndRun(code string) {
 	c.mu.Unlock()
 	buf := make([]byte, 1024)
 	var fullOutput []byte
+	var aiAnalysisStored string
 	for {
 		n, err := ptyFile.Read(buf)
 		if n > 0 {
@@ -260,6 +268,8 @@ func (c *Client) startCompilationAndRun(code string) {
 	err = runCmd.Wait()
 
 	exitMsg := "\r\nProgram exited."
+	isSuccess := false
+
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			exitMsg = fmt.Sprintf("\r\nProgram exited with code %d", exitErr.ExitCode())
@@ -273,6 +283,7 @@ func (c *Client) startCompilationAndRun(code string) {
 				if aiErr != nil {
 					c.sendOutput("\r\nAI Analysis failed: " + aiErr.Error())
 				} else {
+					aiAnalysisStored = analysis
 					msg := WSMsg{
 						Type:    "ai_analysis",
 						Payload: analysis,
@@ -291,26 +302,77 @@ func (c *Client) startCompilationAndRun(code string) {
 			exitMsg = fmt.Sprintf("\r\nProgram exited with error: %v", err)
 		}
 	} else {
-		c.sendOutput("\r\nAnalyzing...")
-		analysis, aiErr := ai.GetAIAnalysis(code, string(fullOutput))
-		if aiErr != nil {
-			c.sendOutput("\r\nAI Analysis failed: " + aiErr.Error())
-		} else {
-			msg := WSMsg{
-				Type:    "ai_analysis",
-				Payload: analysis,
+		// Program exited successfully (exit code 0)
+		isSuccess = true
+
+		if exerciseID > 0 {
+			c.sendOutput("\r\nAvaliando Exercício...")
+			var exercise models.Exercise
+			if dbErr := initializers.DB.First(&exercise, exerciseID).Error; dbErr != nil {
+				c.sendOutput("\r\nFalha ao buscar detalhes do exercício: " + dbErr.Error())
+			} else {
+				// Perform AI Grading
+				grading, aiErr := ai.GetGradingAnalysis(code, string(fullOutput), exercise.ExpectedOutput)
+				if aiErr != nil {
+					c.sendOutput("\r\nFalha na avaliação da IA: " + aiErr.Error())
+				} else {
+					aiAnalysisStored = grading.Feedback
+					isSuccess = grading.Passed // Update success status based on grading
+
+					// We DO NOT send the grading result back to the student anymore.
+					// It is only stored in the database for the teacher to see.
+					if isSuccess {
+						c.sendOutput("\r\n[Sucesso]: Exercício completado corretamente!")
+					} else {
+						c.sendOutput("\r\n[Atenção]: A saída não corresponde ao esperado ou a lógica está incorreta.")
+					}
+				}
 			}
-			jsonBytes, _ := json.Marshal(msg)
-			select {
-			case c.send <- jsonBytes:
-			default:
-				log.Println("WS Send Buffer Full, dropping AI analysis")
+		} else {
+			// Normal AI Analysis for generic runs
+			c.sendOutput("\r\nAnalyzing...")
+			analysis, aiErr := ai.GetAIAnalysis(code, string(fullOutput))
+			if aiErr != nil {
+				c.sendOutput("\r\nAI Analysis failed: " + aiErr.Error())
+			} else {
+				aiAnalysisStored = analysis
+				msg := WSMsg{
+					Type:    "ai_analysis",
+					Payload: analysis,
+				}
+				jsonBytes, _ := json.Marshal(msg)
+				select {
+				case c.send <- jsonBytes:
+				default:
+					log.Println("WS Send Buffer Full, dropping AI analysis")
+				}
 			}
 		}
 	}
 
 	c.sendOutput(exitMsg)
 	c.broadcastMonitor("compile_end", exitMsg)
+
+	// Save history if user is authenticated (using the stored DB ID)
+	if c.UserDBID != 0 {
+		history := models.History{
+			UserID:     c.UserDBID,
+			Code:       code,
+			Output:     string(fullOutput),
+			AIAnalysis: aiAnalysisStored,
+			IsSuccess:  isSuccess,
+		}
+		if exerciseID > 0 {
+			exID := exerciseID
+			history.ExerciseID = &exID
+		}
+
+		if err := initializers.DB.Create(&history).Error; err != nil {
+			log.Printf("Failed to save history for user %d: %v", c.UserDBID, err)
+		} else {
+			log.Printf("Saved history for user %d (Exercise: %d, Success: %v)", c.UserDBID, exerciseID, isSuccess)
+		}
+	}
 
 	c.mu.Lock()
 	c.ptyFile = nil

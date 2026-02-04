@@ -20,7 +20,7 @@ func ConnectToDB() error {
 		log.Fatal("Failed to connect to database: ", err)
 	}
 
-	if err := DB.AutoMigrate(&models.User{}, &models.Classroom{}, &models.History{}); err != nil {
+	if err := DB.AutoMigrate(&models.User{}, &models.Classroom{}, &models.History{}, &models.Exercise{}, &models.ExerciseTopic{}); err != nil {
 		return err
 	}
 
