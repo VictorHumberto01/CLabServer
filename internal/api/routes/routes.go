@@ -16,7 +16,7 @@ func SetupRoutes(r *gin.Engine) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
-	r.POST("/compile", handlers.HandleCompile)
+	r.POST("/compile", middleware.OptionalAuth, handlers.HandleCompile)
 
 	r.OPTIONS("/compile", func(c *gin.Context) {
 		c.Status(http.StatusOK)
@@ -34,4 +34,11 @@ func SetupRoutes(r *gin.Engine) {
 		classrooms.GET("", handlers.ListClassrooms)
 		classrooms.POST("/:id/students", handlers.AddStudent)
 	}
+
+	history := r.Group("/history")
+	history.Use(middleware.RequireAuth)
+	{
+		history.GET("", handlers.ListHistory)
+	}
+
 }

@@ -2,19 +2,16 @@ package middleware
 
 import (
 	"fmt"
-	"net/http"
 	"os"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt"
-	"github.com/vitub/CLabServer/internal/dtos"
 	"github.com/vitub/CLabServer/internal/initializers"
 	"github.com/vitub/CLabServer/internal/models"
 )
 
-func RequireAuth(c *gin.Context) {
+func OptionalAuth(c *gin.Context) {
 	tokenString, err := c.Cookie("Authorization")
-
 	if err != nil {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader != "" && len(authHeader) > 7 && authHeader[:7] == "Bearer " {
@@ -24,11 +21,7 @@ func RequireAuth(c *gin.Context) {
 	}
 
 	if err != nil || tokenString == "" {
-		c.JSON(http.StatusUnauthorized, dtos.ErrorResponse{
-			Success: false,
-			Error:   "Unauthorized - No token found",
-		})
-		c.Abort()
+		c.Next()
 		return
 	}
 
@@ -40,31 +33,16 @@ func RequireAuth(c *gin.Context) {
 	})
 
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, dtos.ErrorResponse{
-			Success: false,
-			Error:   "Unauthorized",
-		})
-		c.Abort()
+		c.Next()
 		return
 	}
 
 	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
 		var user models.User
-		if err := initializers.DB.First(&user, claims["sub"]).Error; err != nil {
-			c.JSON(http.StatusUnauthorized, dtos.ErrorResponse{
-				Success: false,
-				Error:   "Unauthorized",
-			})
-			c.Abort()
-			return
+		if err := initializers.DB.First(&user, claims["sub"]).Error; err == nil {
+			c.Set("user", user)
 		}
-		c.Set("user", user)
-		c.Next()
-	} else {
-		c.JSON(http.StatusUnauthorized, dtos.ErrorResponse{
-			Success: false,
-			Error:   "Unauthorized",
-		})
-		c.Abort()
 	}
+
+	c.Next()
 }

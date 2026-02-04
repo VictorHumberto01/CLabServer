@@ -8,10 +8,14 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/vitub/CLabServer/internal/compiler"
+	"github.com/vitub/CLabServer/internal/initializers"
 	"github.com/vitub/CLabServer/internal/models"
 )
 
 func HandleCompile(c *gin.Context) {
+
+	user, _ := c.Get("user")
+
 	var req models.CompileRequest
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -51,6 +55,23 @@ func HandleCompile(c *gin.Context) {
 		log.Printf("Compilation/execution failed: %s", response.Error)
 	} else {
 		log.Printf("Compilation successful, output length: %d", len(response.Output))
+	}
+
+	// Save history if user is authenticated
+	if user != nil {
+		if u, ok := user.(models.User); ok {
+			history := models.History{
+				UserID: u.ID,
+				Code:   req.Code,
+				Input:  req.Input,
+				Output: response.Output,
+				Error:  response.Error,
+			}
+			initializers.DB.Create(&history)
+			log.Printf("User was logged in and history was saved")
+		} else {
+			log.Printf("User was not logged in")
+		}
 	}
 
 	c.JSON(http.StatusOK, response)

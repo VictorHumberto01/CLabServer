@@ -70,6 +70,7 @@ func main() {
 		{"POST", "/classrooms", "Create classroom"},
 		{"GET", "/classrooms", "List classrooms"},
 		{"POST", "/classrooms/:id/students", "Add student to classroom"},
+		{"GET", "/history", "List history"},
 	}
 
 	for _, e := range endpoints {
