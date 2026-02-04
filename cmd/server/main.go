@@ -6,10 +6,12 @@ import (
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/vitub/CLabServer/internal/api/handlers"
 	"github.com/vitub/CLabServer/internal/api/routes"
 	"github.com/vitub/CLabServer/internal/banner"
 	"github.com/vitub/CLabServer/internal/initializers"
 	"github.com/vitub/CLabServer/internal/security"
+	"github.com/vitub/CLabServer/internal/ws"
 )
 
 func main() {
@@ -47,6 +49,15 @@ func main() {
 	config.AllowCredentials = true
 	r.Use(cors.New(config))
 
+	hub := ws.NewHub()
+	go hub.Run()
+
+	r.GET("/ws", func(c *gin.Context) {
+		ws.ServeWs(hub, c)
+	})
+
+	r.POST("/admin/create-teacher", handlers.CreateTeacher)
+
 	routes.SetupRoutes(r)
 
 	port := os.Getenv("PORT")
@@ -62,6 +73,7 @@ func main() {
 		desc   string
 	}{
 		{"GET", "/health", "Health check"},
+		{"GET", "/ws", "WebSocket Endpoint"},
 		{"POST", "/compile", "Compile and run C code"},
 		{"POST", "/signup", "Sign up"},
 		{"POST", "/login", "Login"},
@@ -71,6 +83,7 @@ func main() {
 		{"GET", "/classrooms", "List classrooms"},
 		{"POST", "/classrooms/:id/students", "Add student to classroom"},
 		{"GET", "/history", "List history"},
+		{"POST", "/admin/create-teacher", "Create Teacher (Admin)"},
 	}
 
 	for _, e := range endpoints {

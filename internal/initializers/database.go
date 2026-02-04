@@ -20,5 +20,11 @@ func ConnectToDB() error {
 		log.Fatal("Failed to connect to database: ", err)
 	}
 
-	return DB.AutoMigrate(&models.User{}, &models.Classroom{}, &models.History{})
+	if err := DB.AutoMigrate(&models.User{}, &models.Classroom{}, &models.History{}); err != nil {
+		return err
+	}
+
+	SeedAdmin()
+
+	return nil
 }
