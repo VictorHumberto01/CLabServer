@@ -32,11 +32,13 @@ func getAIProvider() string {
 	return provider
 }
 
-// GetAIAnalysis generates AI analysis for successful compilation
-func GetAIAnalysis(code string) (string, error) {
+func GetAIAnalysis(code string, output string) (string, error) {
 	prompt := fmt.Sprintf(`Você é um professor de programação C. Analise o código abaixo e responda em português.
 
 CÓDIGO:
+%s
+
+SAÍDA DO PROGRAMA:
 %s
 
 RESPONDA EXATAMENTE NESTE FORMATO (use ## para cada seção):
@@ -53,16 +55,18 @@ Liste as funções/bibliotecas usadas e para que servem.
 ## Fluxo
 Explique passo a passo como o programa executa.
 
+## Análise da Saída
+Comente sobre a saída do programa. Se estiver correta ou se indica algum problema lógico.
+
 ## Melhorias
 Liste sugestões de melhoria se for necessario, não liste se não for necessario.
 
 ## Dicas
-Uma dica educacional para o estudante.`, code)
+Uma dica educacional para o estudante.`, code, output)
 
 	return callAI(prompt)
 }
 
-// GetErrorAnalysis generates AI analysis for compilation errors
 func GetErrorAnalysis(code string, errorMessage string) (string, error) {
 	prompt := fmt.Sprintf(`Você é um professor de programação C. Analise o erro abaixo e responda em português.
 
@@ -92,7 +96,6 @@ Como evitar esse erro no futuro.`, code, errorMessage)
 	return callAI(prompt)
 }
 
-// callAI routes to the appropriate AI provider
 func callAI(prompt string) (string, error) {
 	provider := getAIProvider()
 
@@ -154,7 +157,7 @@ func callGroqAPI(prompt string) (string, error) {
 		"messages": []map[string]string{
 			{
 				"role":    "system",
-				"content": "Você é um professor experiente de programação C, explicando conceitos para um aluno de forma didática e clara.",
+				"content": "Você é um professor experiente de programação C, explicando conceitos para um aluno de forma didática e clara. Analise todas as partes do codigo e procure por possiveis problemas de logica. Informe o usuario se encontrar. Seja rigido com o aluno, não elogie o codigo se ele estiver errado ou mal feito.",
 			},
 			{
 				"role":    "user",

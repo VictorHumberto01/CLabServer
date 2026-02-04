@@ -10,12 +10,12 @@ const (
 
 type User struct {
 	gorm.Model
-	ID       uint
-	Name     string `gorm:"not null"`
-	Email    string `gorm:"unique;index;not null"`
-	Password string `gorm:"not null" json:"-"`
-	Role     string `gorm:"default:USER;not null"`
-	History  []History
+	ID       uint      `json:"id"`
+	Name     string    `gorm:"not null" json:"name"`
+	Email    string    `gorm:"unique;index;not null" json:"email"`
+	Password string    `gorm:"not null" json:"-"`
+	Role     string    `gorm:"default:USER;not null" json:"role"`
+	History  []History `json:"history"`
 }
 
 func (u *User) isAdmin() bool {

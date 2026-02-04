@@ -81,7 +81,7 @@ func CompileAndRun(req models.CompileRequest) models.CompileResponse {
 	var runCmd *exec.Cmd
 
 	var cmdBuilder strings.Builder
-	cmdBuilder.WriteString("ulimit -v 131072; ") // Limit virtual memory to 128MB
+	cmdBuilder.WriteString("ulimit -v 131072; ")
 
 	if security.IsCommandAvailable("firejail") {
 		cmdBuilder.WriteString("firejail --quiet --noprofile --seccomp --nonetwork --private-tmp --noroot --caps.drop=all --rlimit-cpu=10 ")
@@ -119,13 +119,19 @@ func CompileAndRun(req models.CompileRequest) models.CompileResponse {
 			errorMsg = err.Error()
 		}
 
+		errorAnalysis, analysisErr := ai.GetErrorAnalysis(req.Code, errorMsg)
+		if analysisErr != nil {
+			log.Printf("Error analysis failed: %v", analysisErr)
+			errorAnalysis = "===Analysis===\n# Erro de Execução\n\nO programa compilou com sucesso, mas encontrou um erro durante a execução. Verifique a divisão por zero, acesso a memória inválida, ou loops infinitos."
+		}
+
 		return models.CompileResponse{
 			Error:    errorMsg,
-			Analysis: "===Analysis===\n# Erro de Execução\n\nO programa compilou com sucesso, mas encontrou um erro durante a execução. Verifique a divisão por zero, acesso a memória inválida, ou loops infinitos.",
+			Analysis: errorAnalysis,
 		}
 	}
 
-	analysis, err := ai.GetAIAnalysis(req.Code)
+	analysis, err := ai.GetAIAnalysis(req.Code, string(runOut))
 	if err != nil {
 		log.Printf("AI analysis failed: %v", err)
 		analysis = "===Analysis===\n# Análise do Código\n\nDesculpe, não foi possível gerar a análise detalhada do código neste momento. O programa compilou e executou com sucesso."
