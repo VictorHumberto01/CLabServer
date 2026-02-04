@@ -5,83 +5,112 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 )
+
+func getOllamaURL() string {
+	url := os.Getenv("OLLAMA_URL")
+	if url == "" {
+		return "http://localhost:11434"
+	}
+	return url
+}
+
+func getOllamaModel() string {
+	model := os.Getenv("OLLAMA_MODEL")
+	if model == "" {
+		return "llama3.2:1b"
+	}
+	return model
+}
+
+func getAIProvider() string {
+	provider := os.Getenv("AI_PROVIDER")
+	if provider == "" {
+		return "ollama"
+	}
+	return provider
+}
 
 // GetAIAnalysis generates AI analysis for successful compilation
 func GetAIAnalysis(code string) (string, error) {
-	prompt := fmt.Sprintf(`Analise este código C e forneça uma explicação detalhada em português.
-Você é um professor experiente explicando o código para um aluno.
+	prompt := fmt.Sprintf(`Você é um professor de programação C. Analise o código abaixo e responda em português.
 
-Código para análise:
+CÓDIGO:
 %s
 
-Formate sua resposta exatamente assim:
-===Analysis===
-# Análise Detalhada do Código
+RESPONDA EXATAMENTE NESTE FORMATO (use ## para cada seção):
 
-Este programa foi criado para [explicar o propósito]. Vamos analisar cada parte:
+## Resumo
+Uma frase descrevendo o que o programa faz.
 
-## Estrutura Básica
-[explicar a estrutura do código]
+## Estrutura
+Explique a estrutura e organização do código em 2-3 linhas.
 
-## Bibliotecas e Funções
-[explicar as bibliotecas e funções usadas]
+## Funções
+Liste as funções/bibliotecas usadas e para que servem.
 
-## Funcionamento
-[explicar como o código funciona]
+## Fluxo
+Explique passo a passo como o programa executa.
 
-## Sugestões de Melhoria
-[listar sugestões de melhoria]
+## Melhorias
+Liste sugestões de melhoria se for necessario, não liste se não for necessario.
 
-## Dicas de Aprendizado
-[incluir dicas educacionais]`, code)
+## Dicas
+Uma dica educacional para o estudante.`, code)
 
-	return callOllamaAPI(prompt)
+	return callAI(prompt)
 }
 
 // GetErrorAnalysis generates AI analysis for compilation errors
 func GetErrorAnalysis(code string, errorMessage string) (string, error) {
-	prompt := fmt.Sprintf(`Analise este código C que teve erro de compilação e explique detalhadamente o problema em português.
-Você é um professor experiente ajudando um aluno a entender e corrigir erros.
+	prompt := fmt.Sprintf(`Você é um professor de programação C. Analise o erro abaixo e responda em português.
 
-Código com erro:
+CÓDIGO:
 %s
 
-Mensagem de erro do compilador:
+ERRO:
 %s
 
-Formate sua resposta exatamente assim:
-===Analysis===
-# Análise do Erro de Compilação
+RESPONDA EXATAMENTE NESTE FORMATO (use ## para cada seção):
 
-## 🚫 Erro Encontrado
-[explicar claramente qual foi o erro]
+## Erro
+Qual é o erro em uma frase simples.
 
-## 🔍 Causa do Problema
-[explicar por que o erro aconteceu]
+## Causa
+Por que esse erro aconteceu.
 
-## 📚 Conceitos Importantes
-[explicar os conceitos de C que o usuário precisa entender]
+## Solução
+Como corrigir o erro com exemplo de código.
 
-## ✅ Como Corrigir
-[mostrar como corrigir o erro com exemplos]
+## Conceito
+Explique o conceito de C relacionado ao erro.
 
-## 💡 Dicas para Evitar
-[dar dicas para evitar erros similares no futuro]
+## Dicas
+Como evitar esse erro no futuro.`, code, errorMessage)
 
-## 📖 Exemplo Correto
-[mostrar um exemplo de código corrigido se possível]`, code, errorMessage)
+	return callAI(prompt)
+}
 
-	return callOllamaAPI(prompt)
+// callAI routes to the appropriate AI provider
+func callAI(prompt string) (string, error) {
+	provider := getAIProvider()
+
+	switch provider {
+	case "groq":
+		return callGroqAPI(prompt)
+	default:
+		return callOllamaAPI(prompt)
+	}
 }
 
 func callOllamaAPI(prompt string) (string, error) {
 	payload := map[string]interface{}{
-		"model":       "phi3",
+		"model":       getOllamaModel(),
 		"system":      "Você é um professor experiente de programação C, explicando conceitos para um aluno de forma didática e clara.",
 		"prompt":      prompt,
 		"stream":      false,
-		"temperature": 0.5,
+		"temperature": 0.3,
 		"top_p":       0.9,
 	}
 
@@ -90,7 +119,8 @@ func callOllamaAPI(prompt string) (string, error) {
 		return "", fmt.Errorf("error marshaling request: %v", err)
 	}
 
-	resp, err := http.Post("http://localhost:11434/api/generate",
+	ollamaURL := getOllamaURL() + "/api/generate"
+	resp, err := http.Post(ollamaURL,
 		"application/json",
 		bytes.NewBuffer(jsonData))
 	if err != nil {
@@ -109,4 +139,75 @@ func callOllamaAPI(prompt string) (string, error) {
 	}
 
 	return response, nil
+}
+
+func callGroqAPI(prompt string) (string, error) {
+	apiKey := os.Getenv("GROQ_API_KEY")
+	if apiKey == "" {
+		return "", fmt.Errorf("GROQ_API_KEY not set")
+	}
+
+	url := "https://api.groq.com/openai/v1/chat/completions"
+
+	payload := map[string]interface{}{
+		"model": "llama-3.1-8b-instant",
+		"messages": []map[string]string{
+			{
+				"role":    "system",
+				"content": "Você é um professor experiente de programação C, explicando conceitos para um aluno de forma didática e clara.",
+			},
+			{
+				"role":    "user",
+				"content": prompt,
+			},
+		},
+		"temperature": 0.3,
+		"max_tokens":  1024,
+	}
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("error marshaling request: %v", err)
+	}
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "", fmt.Errorf("error creating request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("error calling Groq API: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("error decoding response: %v", err)
+	}
+
+	if errObj, ok := result["error"].(map[string]interface{}); ok {
+		return "", fmt.Errorf("Groq API error: %v", errObj["message"])
+	}
+
+	choices, ok := result["choices"].([]any)
+	if !ok || len(choices) == 0 {
+		return "", fmt.Errorf("no choices in Groq response")
+	}
+
+	choice := choices[0].(map[string]interface{})
+	message, ok := choice["message"].(map[string]interface{})
+	if !ok {
+		return "", fmt.Errorf("invalid message in Groq response")
+	}
+
+	content, ok := message["content"].(string)
+	if !ok {
+		return "", fmt.Errorf("no content in Groq response")
+	}
+
+	return content, nil
 }

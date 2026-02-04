@@ -19,6 +19,13 @@ services:
       - GIN_MODE=release
       - DATABASE_URL=host=db user=user password=password dbname=clab port=5432 sslmode=disable
       - JWT_SECRET=secret
+      # AI Provider: 'ollama' or 'groq'
+      - AI_PROVIDER=groq
+      # Ollama config (when AI_PROVIDER=ollama)
+      - OLLAMA_URL=http://host.docker.internal:11434
+      - OLLAMA_MODEL=llama3.2:1b
+      # Groq config (when AI_PROVIDER=groq)
+      - GROQ_API_KEY=${GROQ_API_KEY}
     depends_on:
       - db
     restart: unless-stopped
