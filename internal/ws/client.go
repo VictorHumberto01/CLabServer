@@ -156,11 +156,6 @@ func (c *Client) writePump() {
 			}
 			w.Write(message)
 
-			n := len(c.send)
-			for i := 0; i < n; i++ {
-				w.Write(<-c.send)
-			}
-
 			if err := w.Close(); err != nil {
 				return
 			}
@@ -212,6 +207,7 @@ func ServeWs(hub *Hub, c *gin.Context) {
 }
 
 func (c *Client) startCompilationAndRun(code string, exerciseID uint) {
+	log.Printf("WS: Starting Run/Submission. UserID: %s (DBID: %d), Name: %s, ExerciseID: %d", c.UserID, c.UserDBID, c.Name, exerciseID)
 	c.broadcastMonitor("compile_start", "Starting compilation...")
 
 	tmpDir, err := os.MkdirTemp("", "cws")
@@ -231,7 +227,31 @@ func (c *Client) startCompilationAndRun(code string, exerciseID uint) {
 		errorOutput := string(out)
 
 		c.sendOutput("Compilation Error:\r\n" + errorOutput)
+
+		analysis, aiErr := ai.GetErrorAnalysis(code, errorOutput)
+		if aiErr == nil {
+			msg := WSMsg{
+				Type:    "ai_analysis",
+				Payload: analysis,
+			}
+			jsonBytes, _ := json.Marshal(msg)
+			select {
+			case c.send <- jsonBytes:
+			default:
+				log.Println("WS Send Buffer Full, dropping AI analysis")
+			}
+		}
+
+		c.sendOutput("\r\n[AI]: Compilation analysis sent to side panel.\r\n")
 		c.broadcastMonitor("compile_end", "Compilation failed")
+
+		statusMsg := WSMsg{
+			Type:    "status",
+			Payload: "stopped",
+		}
+		if statusBytes, err := json.Marshal(statusMsg); err == nil {
+			c.sendOutput(string(statusBytes))
+		}
 		return
 	}
 	c.sendOutput("Compilation successful.\r\nRunning...\r\n")
@@ -302,7 +322,6 @@ func (c *Client) startCompilationAndRun(code string, exerciseID uint) {
 			exitMsg = fmt.Sprintf("\r\nProgram exited with error: %v", err)
 		}
 	} else {
-		// Program exited successfully (exit code 0)
 		isSuccess = true
 
 		if exerciseID > 0 {
@@ -311,16 +330,13 @@ func (c *Client) startCompilationAndRun(code string, exerciseID uint) {
 			if dbErr := initializers.DB.First(&exercise, exerciseID).Error; dbErr != nil {
 				c.sendOutput("\r\nFalha ao buscar detalhes do exercício: " + dbErr.Error())
 			} else {
-				// Perform AI Grading
 				grading, aiErr := ai.GetGradingAnalysis(code, string(fullOutput), exercise.ExpectedOutput)
 				if aiErr != nil {
 					c.sendOutput("\r\nFalha na avaliação da IA: " + aiErr.Error())
 				} else {
 					aiAnalysisStored = grading.Feedback
-					isSuccess = grading.Passed // Update success status based on grading
+					isSuccess = grading.Passed
 
-					// We DO NOT send the grading result back to the student anymore.
-					// It is only stored in the database for the teacher to see.
 					if isSuccess {
 						c.sendOutput("\r\n[Sucesso]: Exercício completado corretamente!")
 					} else {
@@ -328,8 +344,7 @@ func (c *Client) startCompilationAndRun(code string, exerciseID uint) {
 					}
 				}
 			}
-		} else {
-			// Normal AI Analysis for generic runs
+
 			c.sendOutput("\r\nAnalyzing...")
 			analysis, aiErr := ai.GetAIAnalysis(code, string(fullOutput))
 			if aiErr != nil {
@@ -353,7 +368,14 @@ func (c *Client) startCompilationAndRun(code string, exerciseID uint) {
 	c.sendOutput(exitMsg)
 	c.broadcastMonitor("compile_end", exitMsg)
 
-	// Save history if user is authenticated (using the stored DB ID)
+	statusMsg := WSMsg{
+		Type:    "status",
+		Payload: "stopped",
+	}
+	if statusBytes, err := json.Marshal(statusMsg); err == nil {
+		c.sendOutput(string(statusBytes))
+	}
+
 	if c.UserDBID != 0 {
 		history := models.History{
 			UserID:     c.UserDBID,

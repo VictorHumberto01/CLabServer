@@ -21,6 +21,15 @@ func OptionalAuth(c *gin.Context) {
 	}
 
 	if err != nil || tokenString == "" {
+		tokenQueried := c.Query("token")
+		if tokenQueried != "" {
+			tokenString = tokenQueried
+			err = nil
+		}
+	}
+
+	if err != nil || tokenString == "" {
+		fmt.Println("OptionalAuth: No token found")
 		c.Next()
 		return
 	}
@@ -33,6 +42,7 @@ func OptionalAuth(c *gin.Context) {
 	})
 
 	if err != nil {
+		fmt.Printf("OptionalAuth: Token error: %v\n", err)
 		c.Next()
 		return
 	}

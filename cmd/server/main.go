@@ -7,6 +7,7 @@ import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/vitub/CLabServer/internal/api/handlers"
+	"github.com/vitub/CLabServer/internal/api/middleware"
 	"github.com/vitub/CLabServer/internal/api/routes"
 	"github.com/vitub/CLabServer/internal/banner"
 	"github.com/vitub/CLabServer/internal/initializers"
@@ -51,7 +52,7 @@ func main() {
 	hub := ws.NewHub()
 	go hub.Run()
 
-	r.GET("/ws", func(c *gin.Context) {
+	r.GET("/ws", middleware.OptionalAuth, func(c *gin.Context) {
 		ws.ServeWs(hub, c)
 	})
 
@@ -74,7 +75,7 @@ func main() {
 		{"GET", "/health", "Health check"},
 		{"GET", "/ws", "WebSocket Endpoint"},
 		{"POST", "/compile", "Compile and run C code"},
-		{"POST", "/signup", "Sign up"},
+
 		{"POST", "/login", "Login"},
 		{"POST", "/login/cookie", "Login with cookie"},
 		{"GET", "/validate", "Validate token"},

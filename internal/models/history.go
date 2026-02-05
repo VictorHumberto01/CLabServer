@@ -8,10 +8,10 @@ type History struct {
 	User       User      `json:"user" gorm:"foreignKey:UserID"`
 	ExerciseID *uint     `json:"exerciseId,omitempty"`
 	Exercise   *Exercise `json:"exercise,omitempty" gorm:"foreignKey:ExerciseID"`
-	Code       string
-	Input      string
-	Output     string
-	Error      string
-	AIAnalysis string `json:"aiAnalysis"`
-	IsSuccess  bool   `json:"isSuccess"`
+	Code       string    `json:"code"`
+	Input      string    `json:"input"`
+	Output     string    `json:"output"`
+	Error      string    `json:"error"`
+	AIAnalysis string    `json:"aiAnalysis"`
+	IsSuccess  bool      `json:"isSuccess"`
 }

@@ -16,53 +16,6 @@ import (
 	"gorm.io/gorm"
 )
 
-func SignUp(c *gin.Context) {
-	var req dtos.CreateUserRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, dtos.ErrorResponse{
-			Success: false,
-			Error:   "Invalid input: " + err.Error(),
-		})
-		return
-	}
-
-	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), 10)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, dtos.ErrorResponse{
-			Success: false,
-			Error:   "Failed to hash password",
-		})
-		return
-	}
-
-	user := models.User{
-		Email:    req.Email,
-		Password: string(hash),
-		Role:     models.RoleUser,
-	}
-
-	if err := initializers.DB.Create(&user).Error; err != nil {
-		if strings.Contains(err.Error(), "duplicate") || strings.Contains(err.Error(), "unique") {
-			c.JSON(http.StatusConflict, dtos.ErrorResponse{
-				Success: false,
-				Error:   "Email already in use",
-			})
-			return
-		}
-
-		c.JSON(http.StatusInternalServerError, dtos.ErrorResponse{
-			Success: false,
-			Error:   "Failed to create user: " + err.Error(),
-		})
-		return
-	}
-
-	c.JSON(http.StatusCreated, dtos.SuccessResponse{
-		Success: true,
-		Data:    dtos.IDResponse{ID: user.ID},
-	})
-}
-
 func LoginWithToken(c *gin.Context) {
 	var req dtos.LoginUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
