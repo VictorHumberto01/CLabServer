@@ -221,6 +221,14 @@ func (c *Client) startCompilationAndRun(code string, exerciseID uint) {
 	binPath := tmpDir + "/program"
 	os.WriteFile(srcPath, []byte(code), 0644)
 
+	var isExam bool
+	if exerciseID > 0 {
+		var exercise models.Exercise
+		if err := initializers.DB.Preload("Topic").First(&exercise, exerciseID).Error; err == nil {
+			isExam = exercise.Topic != nil && exercise.Topic.IsExam
+		}
+	}
+
 	compileCmd := exec.Command("gcc", srcPath, "-o", binPath, "-Wall")
 	out, err := compileCmd.CombinedOutput()
 	if err != nil {
@@ -228,21 +236,28 @@ func (c *Client) startCompilationAndRun(code string, exerciseID uint) {
 
 		c.sendOutput("Compilation Error:\r\n" + errorOutput)
 
-		analysis, aiErr := ai.GetErrorAnalysis(code, errorOutput)
-		if aiErr == nil {
-			msg := WSMsg{
-				Type:    "ai_analysis",
-				Payload: analysis,
+		var analysis string
+		var aiErr error
+
+		if !isExam {
+			analysis, aiErr = ai.GetErrorAnalysis(code, errorOutput)
+			if aiErr == nil {
+				msg := WSMsg{
+					Type:    "ai_analysis",
+					Payload: analysis,
+				}
+				jsonBytes, _ := json.Marshal(msg)
+				select {
+				case c.send <- jsonBytes:
+				default:
+					log.Println("WS Send Buffer Full, dropping AI analysis")
+				}
+				c.sendOutput("\r\n[AI]: Compilation analysis sent to side panel.\r\n")
 			}
-			jsonBytes, _ := json.Marshal(msg)
-			select {
-			case c.send <- jsonBytes:
-			default:
-				log.Println("WS Send Buffer Full, dropping AI analysis")
-			}
+		} else {
+			c.sendOutput("\r\n[MODO PROVA]: Detalhes do erro suprimidos. Verifique sua sintaxe.\r\n")
 		}
 
-		c.sendOutput("\r\n[AI]: Compilation analysis sent to side panel.\r\n")
 		c.broadcastMonitor("compile_end", "Compilation failed")
 
 		statusMsg := WSMsg{
@@ -252,6 +267,32 @@ func (c *Client) startCompilationAndRun(code string, exerciseID uint) {
 		if statusBytes, err := json.Marshal(statusMsg); err == nil {
 			c.sendOutput(string(statusBytes))
 		}
+
+		if c.UserDBID != 0 {
+			history := models.History{
+				UserID:    c.UserDBID,
+				Code:      code,
+				Error:     errorOutput,
+				IsSuccess: false,
+				Score:     0,
+			}
+			if exerciseID > 0 {
+				exID := exerciseID
+				history.ExerciseID = &exID
+			}
+
+			if isExam {
+				analysisForTeacher, err := ai.GetErrorAnalysis(code, errorOutput)
+				if err == nil {
+					history.TeacherGrading = analysisForTeacher
+				}
+			} else {
+				history.AIAnalysis = analysis
+			}
+
+			initializers.DB.Create(&history)
+		}
+
 		return
 	}
 	c.sendOutput("Compilation successful.\r\nRunning...\r\n")
@@ -326,40 +367,61 @@ func (c *Client) startCompilationAndRun(code string, exerciseID uint) {
 
 		if exerciseID > 0 {
 			c.sendOutput("\r\nAvaliando Exercício...")
+			c.sendOutput("\r\nAvaliando Exercício...")
 			var exercise models.Exercise
-			if dbErr := initializers.DB.First(&exercise, exerciseID).Error; dbErr != nil {
+			if dbErr := initializers.DB.Preload("Topic").First(&exercise, exerciseID).Error; dbErr != nil {
 				c.sendOutput("\r\nFalha ao buscar detalhes do exercício: " + dbErr.Error())
 			} else {
-				grading, aiErr := ai.GetGradingAnalysis(code, string(fullOutput), exercise.ExpectedOutput)
-				if aiErr != nil {
-					c.sendOutput("\r\nFalha na avaliação da IA: " + aiErr.Error())
-				} else {
-					aiAnalysisStored = grading.Feedback
-					isSuccess = grading.Passed
 
-					if isSuccess {
-						c.sendOutput("\r\n[Sucesso]: Exercício completado corretamente!")
+				isExam := exercise.Topic != nil && exercise.Topic.IsExam
+
+				if isExam {
+					c.sendOutput("\r\n[MODO PROVA]: Submissão recebida.")
+					c.sendOutput("\r\nO professor receberá sua resposta para correção.")
+
+					grading, aiErr := ai.GetExamGradingAnalysis(code, string(fullOutput), exercise.ExpectedOutput, exercise.ExamMaxNote)
+					if aiErr != nil {
+						log.Printf("Exam grading failed: %v", aiErr)
+						aiAnalysisStored = "Erro na correção automática: " + aiErr.Error()
 					} else {
-						c.sendOutput("\r\n[Atenção]: A saída não corresponde ao esperado ou a lógica está incorreta.")
-					}
-				}
-			}
+						gradingJson, _ := json.Marshal(grading)
+						aiAnalysisStored = string(gradingJson)
 
-			c.sendOutput("\r\nAnalyzing...")
-			analysis, aiErr := ai.GetAIAnalysis(code, string(fullOutput))
-			if aiErr != nil {
-				c.sendOutput("\r\nAI Analysis failed: " + aiErr.Error())
-			} else {
-				aiAnalysisStored = analysis
-				msg := WSMsg{
-					Type:    "ai_analysis",
-					Payload: analysis,
-				}
-				jsonBytes, _ := json.Marshal(msg)
-				select {
-				case c.send <- jsonBytes:
-				default:
-					log.Println("WS Send Buffer Full, dropping AI analysis")
+					}
+					isSuccess = true
+
+				} else {
+					grading, aiErr := ai.GetGradingAnalysis(code, string(fullOutput), exercise.ExpectedOutput)
+					if aiErr != nil {
+						c.sendOutput("\r\nFalha na avaliação da IA: " + aiErr.Error())
+					} else {
+						aiAnalysisStored = grading.Feedback
+						isSuccess = grading.Passed
+
+						if isSuccess {
+							c.sendOutput("\r\n[Sucesso]: Exercício completado corretamente!")
+						} else {
+							c.sendOutput("\r\n[Atenção]: A saída não corresponde ao esperado ou a lógica está incorreta.")
+						}
+					}
+
+					c.sendOutput("\r\nAnalyzing...")
+					analysis, aiErr := ai.GetAIAnalysis(code, string(fullOutput))
+					if aiErr != nil {
+						c.sendOutput("\r\nAI Analysis failed: " + aiErr.Error())
+					} else {
+						aiAnalysisStored = analysis
+						msg := WSMsg{
+							Type:    "ai_analysis",
+							Payload: analysis,
+						}
+						jsonBytes, _ := json.Marshal(msg)
+						select {
+						case c.send <- jsonBytes:
+						default:
+							log.Println("WS Send Buffer Full, dropping AI analysis")
+						}
+					}
 				}
 			}
 		}
@@ -377,12 +439,26 @@ func (c *Client) startCompilationAndRun(code string, exerciseID uint) {
 	}
 
 	if c.UserDBID != 0 {
+		var teacherGradingData string
+		var scoreVal float64
+
+		if len(aiAnalysisStored) > 0 && aiAnalysisStored[0] == '{' {
+			var gradingRes ai.ExamGradingResult
+			if err := json.Unmarshal([]byte(aiAnalysisStored), &gradingRes); err == nil {
+				teacherGradingData = gradingRes.Feedback
+				scoreVal = gradingRes.Score
+				aiAnalysisStored = ""
+			}
+		}
+
 		history := models.History{
-			UserID:     c.UserDBID,
-			Code:       code,
-			Output:     string(fullOutput),
-			AIAnalysis: aiAnalysisStored,
-			IsSuccess:  isSuccess,
+			UserID:         c.UserDBID,
+			Code:           code,
+			Output:         string(fullOutput),
+			AIAnalysis:     aiAnalysisStored, // Empty for exams if we cleared it
+			TeacherGrading: teacherGradingData,
+			Score:          scoreVal,
+			IsSuccess:      isSuccess,
 		}
 		if exerciseID > 0 {
 			exID := exerciseID

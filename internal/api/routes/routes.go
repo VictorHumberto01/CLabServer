@@ -24,7 +24,9 @@ func SetupRoutes(r *gin.Engine) {
 
 	r.POST("/login", handlers.LoginWithToken)
 	r.POST("/login/cookie", handlers.LoginWithCookie)
+	r.POST("/login/matricula", handlers.LoginMatricula)
 	r.GET("/validate", middleware.RequireAuth, handlers.Validate)
+	r.PUT("/profile", middleware.RequireAuth, handlers.UpdateProfile)
 
 	classrooms := r.Group("/classrooms")
 	classrooms.Use(middleware.RequireAuth)
@@ -38,6 +40,7 @@ func SetupRoutes(r *gin.Engine) {
 		classrooms.GET("/:id/topics", handlers.ListTopics)
 		classrooms.POST("/:id/exercises", handlers.CreateExercise)
 		classrooms.GET("/:id/exercises", handlers.ListExercises)
+		classrooms.POST("/:id/exam", handlers.ToggleExamMode)
 	}
 
 	history := r.Group("/history")

@@ -11,8 +11,14 @@ type ClassroomResponse struct {
 	Teacher      *UserResponse  `json:"teacher,omitempty"` // Use pointer to omit if nil
 	Students     []UserResponse `json:"students,omitempty"`
 	StudentCount int            `json:"studentCount"`
+	ActiveExamID *uint          `json:"activeExamId"`
+}
+
+type UpdateClassroomExamRequest struct {
+	ActiveExamID *uint `json:"activeExamId"`
 }
 
 type AddStudentRequest struct {
-	Email string `json:"email" binding:"required,email"`
+	Email     string `json:"email"`
+	Matricula string `json:"matricula"`
 }

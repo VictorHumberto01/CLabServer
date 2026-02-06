@@ -34,6 +34,8 @@ func CreateTopic(c *gin.Context) {
 	topic := models.ExerciseTopic{
 		ClassroomID: classroom.ID,
 		Title:       req.Title,
+		ExpireDate:  req.ExpireDate,
+		IsExam:      req.IsExam,
 	}
 
 	if err := initializers.DB.Create(&topic).Error; err != nil {
@@ -47,6 +49,8 @@ func CreateTopic(c *gin.Context) {
 			ID:          topic.ID,
 			ClassroomID: topic.ClassroomID,
 			Title:       topic.Title,
+			ExpireDate:  topic.ExpireDate,
+			IsExam:      topic.IsExam,
 		},
 	})
 }
@@ -72,6 +76,7 @@ func ListTopics(c *gin.Context) {
 				Description:    ex.Description,
 				ExpectedOutput: ex.ExpectedOutput,
 				InitialCode:    ex.InitialCode,
+				ExamMaxNote:    ex.ExamMaxNote,
 				CreatedAt:      ex.CreatedAt.Format("2006-01-02 15:04:05"),
 			})
 		}
@@ -80,6 +85,8 @@ func ListTopics(c *gin.Context) {
 			ClassroomID: t.ClassroomID,
 			Title:       t.Title,
 			Exercises:   exercises,
+			ExpireDate:  t.ExpireDate,
+			IsExam:      t.IsExam,
 		})
 	}
 

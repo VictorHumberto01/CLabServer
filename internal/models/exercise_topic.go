@@ -1,6 +1,10 @@
 package models
 
-import "gorm.io/gorm"
+import (
+	"time"
+
+	"gorm.io/gorm"
+)
 
 type ExerciseTopic struct {
 	gorm.Model
@@ -8,4 +12,6 @@ type ExerciseTopic struct {
 	Classroom   Classroom  `json:"classroom,omitempty" gorm:"foreignKey:ClassroomID"`
 	Title       string     `json:"title" gorm:"not null"`
 	Exercises   []Exercise `json:"exercises,omitempty" gorm:"foreignKey:TopicID"`
+	ExpireDate  *time.Time `json:"expireDate"`
+	IsExam      bool       `json:"isExam" gorm:"default:false"`
 }

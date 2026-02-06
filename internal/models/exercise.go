@@ -1,6 +1,8 @@
 package models
 
-import "gorm.io/gorm"
+import (
+	"gorm.io/gorm"
+)
 
 type Exercise struct {
 	gorm.Model
@@ -12,4 +14,5 @@ type Exercise struct {
 	Description    string         `json:"description"`
 	ExpectedOutput string         `json:"expectedOutput"`
 	InitialCode    string         `json:"initialCode"`
+	ExamMaxNote    float64        `json:"examMaxNote" gorm:"default:10.0"`
 }

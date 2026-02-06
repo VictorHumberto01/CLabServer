@@ -62,6 +62,14 @@ func ListHistory(c *gin.Context) {
 			Where("exercises.classroom_id = ?", filterClassroomID)
 	}
 
+	filterTopicID := c.Query("topicId")
+	if filterTopicID != "" {
+		if filterClassroomID == "" {
+			query = query.Joins("JOIN exercises ON exercises.id = histories.exercise_id")
+		}
+		query = query.Where("exercises.topic_id = ?", filterTopicID)
+	}
+
 	if search != "" {
 		query = query.Where("histories.code LIKE ?", "%"+search+"%")
 	}

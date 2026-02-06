@@ -65,9 +65,10 @@ func ListClassrooms(c *gin.Context) {
 		initializers.DB.Model(&models.Exercise{}).Where("classroom_id = ?", class.ID).Count(&totalExercises)
 
 		response = append(response, dtos.ClassroomResponse{
-			ID:        class.ID,
-			Name:      class.Name,
-			TeacherID: class.TeacherID,
+			ID:           class.ID,
+			Name:         class.Name,
+			TeacherID:    class.TeacherID,
+			ActiveExamID: class.ActiveExamTopicID,
 			Teacher: &dtos.UserResponse{
 				ID:    class.Teacher.ID,
 				Name:  class.Teacher.Name,
@@ -127,8 +128,18 @@ func AddStudent(c *gin.Context) {
 	}
 
 	var student models.User
-	if err := initializers.DB.Where("email = ?", req.Email).First(&student).Error; err != nil {
-		c.JSON(http.StatusNotFound, dtos.ErrorResponse{Error: "Student email not found"})
+	if req.Email != "" {
+		if err := initializers.DB.Where("email = ?", req.Email).First(&student).Error; err != nil {
+			c.JSON(http.StatusNotFound, dtos.ErrorResponse{Error: "Student email not found"})
+			return
+		}
+	} else if req.Matricula != "" {
+		if err := initializers.DB.Where("matricula = ?", req.Matricula).First(&student).Error; err != nil {
+			c.JSON(http.StatusNotFound, dtos.ErrorResponse{Error: "Student matricula not found"})
+			return
+		}
+	} else {
+		c.JSON(http.StatusBadRequest, dtos.ErrorResponse{Error: "Email or matricula is required"})
 		return
 	}
 
@@ -201,5 +212,54 @@ func RemoveStudent(c *gin.Context) {
 	c.JSON(http.StatusOK, dtos.SuccessResponse{
 		Success: true,
 		Message: "Student removed from classroom successfully",
+	})
+}
+
+func ToggleExamMode(c *gin.Context) {
+	classroomID := c.Param("id")
+	var req dtos.UpdateClassroomExamRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dtos.ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	user, _ := c.Get("user")
+	currentUser := user.(models.User)
+
+	var classroom models.Classroom
+	if err := initializers.DB.First(&classroom, classroomID).Error; err != nil {
+		c.JSON(http.StatusNotFound, dtos.ErrorResponse{Error: "Classroom not found"})
+		return
+	}
+
+	if classroom.TeacherID != currentUser.ID {
+		c.JSON(http.StatusForbidden, dtos.ErrorResponse{Error: "Not authorized to manage this classroom"})
+		return
+	}
+
+	if req.ActiveExamID != nil {
+		var topic models.ExerciseTopic
+		if err := initializers.DB.First(&topic, *req.ActiveExamID).Error; err != nil {
+			c.JSON(http.StatusBadRequest, dtos.ErrorResponse{Error: "Exam topic not found"})
+			return
+		}
+		if topic.ClassroomID != classroom.ID {
+			c.JSON(http.StatusBadRequest, dtos.ErrorResponse{Error: "Topic does not belong to this classroom"})
+			return
+		}
+		if !topic.IsExam {
+			c.JSON(http.StatusBadRequest, dtos.ErrorResponse{Error: "Selected topic is not marked as an exam"})
+			return
+		}
+	}
+
+	if err := initializers.DB.Model(&classroom).Update("active_exam_topic_id", req.ActiveExamID).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, dtos.ErrorResponse{Error: "Failed to update exam mode"})
+		return
+	}
+
+	c.JSON(http.StatusOK, dtos.SuccessResponse{
+		Success: true,
+		Message: "Exam mode updated successfully",
 	})
 }

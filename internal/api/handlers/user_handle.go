@@ -74,6 +74,65 @@ func LoginWithToken(c *gin.Context) {
 
 }
 
+func LoginMatricula(c *gin.Context) {
+	var req dtos.LoginMatriculaRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dtos.ErrorResponse{
+			Success: false,
+			Error:   "Matrícula e senha são obrigatórios",
+		})
+		return
+	}
+
+	var user models.User
+	result := initializers.DB.Where("matricula = ?", req.Matricula).First(&user)
+
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusUnauthorized, dtos.ErrorResponse{
+				Success: false,
+				Error:   "Matrícula ou senha inválida",
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dtos.ErrorResponse{
+			Success: false,
+			Error:   "Erro interno",
+		})
+		return
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
+		c.JSON(http.StatusUnauthorized, dtos.ErrorResponse{
+			Success: false,
+			Error:   "Matrícula ou senha inválida",
+		})
+		return
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"sub": user.ID,
+		"exp": time.Now().Add(time.Hour * 24 * 30).Unix(),
+	})
+
+	tokenString, err := token.SignedString([]byte(os.Getenv("JWT_SECRET")))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dtos.ErrorResponse{
+			Success: false,
+			Error:   "Erro ao gerar token",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, dtos.SuccessResponse{
+		Success: true,
+		Data: gin.H{
+			"token":      tokenString,
+			"needsSetup": user.Email == "",
+		},
+	})
+}
+
 func LoginWithCookie(c *gin.Context) {
 	var req dtos.LoginUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -152,6 +211,73 @@ func Validate(c *gin.Context) {
 	})
 }
 
+func UpdateProfile(c *gin.Context) {
+	currentUser, exists := c.Get("user")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, dtos.ErrorResponse{
+			Success: false,
+			Error:   "Não autorizado",
+		})
+		return
+	}
+	user := currentUser.(models.User)
+
+	var req dtos.UpdateProfileRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dtos.ErrorResponse{
+			Success: false,
+			Error:   "Dados inválidos: " + err.Error(),
+		})
+		return
+	}
+
+	updates := map[string]interface{}{}
+
+	if req.Email != "" {
+		updates["email"] = req.Email
+	}
+
+	if req.Password != "" {
+		hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), 10)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, dtos.ErrorResponse{
+				Success: false,
+				Error:   "Erro ao processar senha",
+			})
+			return
+		}
+		updates["password"] = string(hash)
+	}
+
+	if len(updates) == 0 {
+		c.JSON(http.StatusBadRequest, dtos.ErrorResponse{
+			Success: false,
+			Error:   "Nenhum dado para atualizar",
+		})
+		return
+	}
+
+	if err := initializers.DB.Model(&user).Updates(updates).Error; err != nil {
+		if strings.Contains(err.Error(), "duplicate") || strings.Contains(err.Error(), "unique") {
+			c.JSON(http.StatusConflict, dtos.ErrorResponse{
+				Success: false,
+				Error:   "Email já em uso",
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dtos.ErrorResponse{
+			Success: false,
+			Error:   "Erro ao atualizar perfil",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, dtos.SuccessResponse{
+		Success: true,
+		Message: "Perfil atualizado com sucesso",
+	})
+}
+
 func CreateUser(c *gin.Context) {
 	currentUser, exists := c.Get("user")
 	if !exists {
@@ -203,7 +329,13 @@ func CreateUser(c *gin.Context) {
 		return
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), 10)
+	// Generate random password if not provided
+	initialPassword := req.Password
+	if initialPassword == "" {
+		initialPassword = generateSimplePassword()
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(initialPassword), 10)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dtos.ErrorResponse{
 			Success: false,
@@ -213,17 +345,18 @@ func CreateUser(c *gin.Context) {
 	}
 
 	user := models.User{
-		Name:     req.Name,
-		Email:    req.Email,
-		Password: string(hash),
-		Role:     targetRole,
+		Name:      req.Name,
+		Email:     req.Email,
+		Matricula: req.Matricula,
+		Password:  string(hash),
+		Role:      targetRole,
 	}
 
 	if err := initializers.DB.Create(&user).Error; err != nil {
 		if strings.Contains(err.Error(), "duplicate") || strings.Contains(err.Error(), "unique") {
 			c.JSON(http.StatusConflict, dtos.ErrorResponse{
 				Success: false,
-				Error:   "Email already in use",
+				Error:   "Email ou matrícula já em uso",
 			})
 			return
 		}
@@ -236,13 +369,25 @@ func CreateUser(c *gin.Context) {
 
 	c.JSON(http.StatusCreated, dtos.SuccessResponse{
 		Success: true,
-		Data: dtos.UserResponse{
-			ID:    user.ID,
-			Name:  user.Name,
-			Email: user.Email,
-			Role:  user.Role,
+		Data: dtos.CreateUserResponse{
+			ID:              user.ID,
+			Name:            user.Name,
+			Email:           user.Email,
+			Matricula:       user.Matricula,
+			Role:            user.Role,
+			InitialPassword: initialPassword,
 		},
 	})
+}
+
+func generateSimplePassword() string {
+	const chars = "abcdefghijklmnopqrstuvwxyz0123456789"
+	result := make([]byte, 6)
+	for i := range result {
+		result[i] = chars[time.Now().UnixNano()%int64(len(chars))]
+		time.Sleep(time.Nanosecond)
+	}
+	return string(result)
 }
 
 func ListUsers(c *gin.Context) {
@@ -296,10 +441,11 @@ func ListUsers(c *gin.Context) {
 	var userResponses []dtos.UserResponse
 	for _, u := range users {
 		userResponses = append(userResponses, dtos.UserResponse{
-			ID:    u.ID,
-			Name:  u.Name,
-			Email: u.Email,
-			Role:  u.Role,
+			ID:        u.ID,
+			Name:      u.Name,
+			Email:     u.Email,
+			Matricula: u.Matricula,
+			Role:      u.Role,
 		})
 	}
 

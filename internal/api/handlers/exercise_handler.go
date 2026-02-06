@@ -32,6 +32,7 @@ func CreateExercise(c *gin.Context) {
 		return
 	}
 
+	// Create Exercise
 	exercise := models.Exercise{
 		ClassroomID:    classroom.ID,
 		TopicID:        req.TopicID,
@@ -39,6 +40,7 @@ func CreateExercise(c *gin.Context) {
 		Description:    req.Description,
 		ExpectedOutput: req.ExpectedOutput,
 		InitialCode:    req.InitialCode,
+		ExamMaxNote:    req.ExamMaxNote,
 	}
 
 	if err := initializers.DB.Create(&exercise).Error; err != nil {
@@ -57,6 +59,7 @@ func CreateExercise(c *gin.Context) {
 			ExpectedOutput: exercise.ExpectedOutput,
 			InitialCode:    exercise.InitialCode,
 			CreatedAt:      exercise.CreatedAt.Format(time.RFC3339),
+			ExamMaxNote:    exercise.ExamMaxNote,
 		},
 	})
 }
@@ -81,6 +84,7 @@ func ListExercises(c *gin.Context) {
 			ExpectedOutput: ex.ExpectedOutput,
 			InitialCode:    ex.InitialCode,
 			CreatedAt:      ex.CreatedAt.Format(time.RFC3339),
+			ExamMaxNote:    ex.ExamMaxNote,
 		})
 	}
 
