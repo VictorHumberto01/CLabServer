@@ -216,3 +216,10 @@ chore: tarefas de manutenção
 3. Implemente a funcionalidade com testes
 4. Atualize a documentação se necessário
 5. Submeta o PR com descrição clara
+
+---
+
+## 📝 Licença
+
+Este projeto é licenciado sob a **GNU General Public License v2.0 (GPL-2.0)**.
+O CLab Server é um software livre e de código aberto; você pode redistribuí-lo e/ou modificá-lo sob os termos da licença GNU GPL v2 conforme publicada pela Free Software Foundation.
