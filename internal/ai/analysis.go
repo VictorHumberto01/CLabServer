@@ -191,10 +191,7 @@ func GetExamGradingAnalysis(code string, output string, expectedOutput string, m
 	%s
 	
 	RESPONDA APENAS UM JSON VÁLIDO:
-	{
-		"score": float (de 0 a %.2f),
-		"feedback": "Feedback técnico para o professor sobre os pontos positivos e onde o aluno errou/pode melhorar."
-	}`, maxNote, code, output, expectedOutput, maxNote)
+	{"score": float (de 0 a %.2f), "feedback": "Feedback técnico para o professor sobre os pontos positivos e onde o aluno errou/pode melhorar."}`, maxNote, code, output, expectedOutput, maxNote)
 
 	response, err := callAI(prompt)
 	if err != nil {
@@ -204,10 +201,62 @@ func GetExamGradingAnalysis(code string, output string, expectedOutput string, m
 	cleanResponse := removeMarkdown(response)
 	var result ExamGradingResult
 	if err := json.Unmarshal([]byte(cleanResponse), &result); err != nil {
-		return ExamGradingResult{Score: 0, Feedback: "Erro ao processar nota: " + response}, nil
+		result = extractScoreFromText(response, maxNote)
+		if result.Score == 0 && result.Feedback == "" {
+			return ExamGradingResult{Score: 0, Feedback: "Erro ao processar nota: " + response}, nil
+		}
 	}
 
 	return result, nil
+}
+
+func extractScoreFromText(text string, maxNote float64) ExamGradingResult {
+	var score float64 = 0
+	feedback := text
+
+	patterns := []string{
+		`\*\*[Nn]ota[:\*]*\s*(\d+(?:[.,]\d+)?)`,        // **Nota:** 3.00 or **Nota** 3.00
+		`"score"\s*:\s*(\d+(?:[.,]\d+)?)`,              // "score": 3.0
+		`[Nn]ota\s*[:=]\s*(\d+(?:[.,]\d+)?)`,           // Nota: 3.0 or Nota = 3.0
+		`[Ss]core\s*[:=]\s*(\d+(?:[.,]\d+)?)`,          // Score: 3.0
+		`(\d+(?:[.,]\d+)?)\s*(?:pontos?|pts?|/\s*\d+)`, // 3.0 pontos, 3/10
+	}
+
+	for _, pattern := range patterns {
+		re := regexp.MustCompile(pattern)
+		matches := re.FindStringSubmatch(text)
+		if len(matches) > 1 {
+			scoreStr := strings.Replace(matches[1], ",", ".", 1)
+			if parsed, parseErr := parseFloat(scoreStr); parseErr == nil {
+				score = parsed
+				break
+			}
+		}
+	}
+
+	if score > maxNote {
+		score = maxNote
+	}
+	feedbackPatterns := []string{
+		`\*\*[Ff]eedback[:\*]*\s*(.+)`,
+		`"feedback"\s*:\s*"([^"]+)"`,
+	}
+	for _, pattern := range feedbackPatterns {
+		re := regexp.MustCompile(pattern)
+		matches := re.FindStringSubmatch(text)
+		if len(matches) > 1 {
+			feedback = matches[1]
+			break
+		}
+	}
+
+	return ExamGradingResult{Score: score, Feedback: strings.TrimSpace(feedback)}
+}
+
+func parseFloat(s string) (float64, error) {
+	var f float64
+	_, err := fmt.Sscanf(s, "%f", &f)
+	return f, err
 }
 
 func callAI(prompt string) (string, error) {

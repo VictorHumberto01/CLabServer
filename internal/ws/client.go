@@ -66,6 +66,27 @@ type MonitorMsg struct {
 	Timestamp string `json:"timestamp"`
 }
 
+type AnalysisPayload struct {
+	Status  string `json:"status"`
+	Content string `json:"content"`
+}
+
+func (c *Client) sendAIAnalysis(analysis string, status string) {
+	payload := AnalysisPayload{Status: status, Content: analysis}
+	payloadBytes, _ := json.Marshal(payload)
+
+	msg := WSMsg{
+		Type:    "ai_analysis",
+		Payload: string(payloadBytes),
+	}
+	jsonBytes, _ := json.Marshal(msg)
+	select {
+	case c.send <- jsonBytes:
+	default:
+		log.Println("WS Send Buffer Full, dropping AI analysis")
+	}
+}
+
 func (c *Client) readPump() {
 	defer func() {
 		c.Hub.unregister <- c
@@ -242,16 +263,7 @@ func (c *Client) startCompilationAndRun(code string, exerciseID uint) {
 		if !isExam {
 			analysis, aiErr = ai.GetErrorAnalysis(code, errorOutput)
 			if aiErr == nil {
-				msg := WSMsg{
-					Type:    "ai_analysis",
-					Payload: analysis,
-				}
-				jsonBytes, _ := json.Marshal(msg)
-				select {
-				case c.send <- jsonBytes:
-				default:
-					log.Println("WS Send Buffer Full, dropping AI analysis")
-				}
+				c.sendAIAnalysis(analysis, "error")
 				c.sendOutput("\r\n[AI]: Compilation analysis sent to side panel.\r\n")
 			}
 		} else {
@@ -345,17 +357,7 @@ func (c *Client) startCompilationAndRun(code string, exerciseID uint) {
 					c.sendOutput("\r\nAI Analysis failed: " + aiErr.Error())
 				} else {
 					aiAnalysisStored = analysis
-					msg := WSMsg{
-						Type:    "ai_analysis",
-						Payload: analysis,
-					}
-					jsonBytes, _ := json.Marshal(msg)
-					select {
-					case c.send <- jsonBytes:
-					default:
-						log.Println("WS Send Buffer Full, dropping AI analysis")
-					}
-
+					c.sendAIAnalysis(analysis, "error")
 					c.sendOutput("\r\n[AI]: Analysis sent to side panel.\r\n")
 				}
 			}
@@ -365,7 +367,18 @@ func (c *Client) startCompilationAndRun(code string, exerciseID uint) {
 	} else {
 		isSuccess = true
 
-		if exerciseID > 0 {
+		if exerciseID == 0 {
+			// Normal code run - perform AI analysis
+			c.sendOutput("\r\nAnalyzing...")
+			analysis, aiErr := ai.GetAIAnalysis(code, string(fullOutput))
+			if aiErr != nil {
+				c.sendOutput("\r\nAI Analysis failed: " + aiErr.Error())
+			} else {
+				aiAnalysisStored = analysis
+				c.sendAIAnalysis(analysis, "success")
+				c.sendOutput("\r\n[AI]: Analysis sent to side panel.\r\n")
+			}
+		} else if exerciseID > 0 {
 			c.sendOutput("\r\nAvaliando Exercício...")
 			c.sendOutput("\r\nAvaliando Exercício...")
 			var exercise models.Exercise
@@ -411,16 +424,7 @@ func (c *Client) startCompilationAndRun(code string, exerciseID uint) {
 						c.sendOutput("\r\nAI Analysis failed: " + aiErr.Error())
 					} else {
 						aiAnalysisStored = analysis
-						msg := WSMsg{
-							Type:    "ai_analysis",
-							Payload: analysis,
-						}
-						jsonBytes, _ := json.Marshal(msg)
-						select {
-						case c.send <- jsonBytes:
-						default:
-							log.Println("WS Send Buffer Full, dropping AI analysis")
-						}
+						c.sendAIAnalysis(analysis, "success")
 					}
 				}
 			}

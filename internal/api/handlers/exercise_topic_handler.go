@@ -20,13 +20,13 @@ func CreateTopic(c *gin.Context) {
 	user, _ := c.Get("user")
 	currentUser := user.(models.User)
 
-	var classroom models.Classroom
-	if err := initializers.DB.First(&classroom, classroomId).Error; err != nil {
+	classroom, err := loadClassroomWithTeachers(classroomId)
+	if err != nil {
 		c.JSON(http.StatusNotFound, dtos.ErrorResponse{Error: "Classroom not found"})
 		return
 	}
 
-	if classroom.TeacherID != currentUser.ID {
+	if !isTeacherOfClassroom(currentUser.ID, classroom) {
 		c.JSON(http.StatusForbidden, dtos.ErrorResponse{Error: "Not authorized"})
 		return
 	}

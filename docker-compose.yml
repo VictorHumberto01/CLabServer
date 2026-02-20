@@ -27,7 +27,8 @@ services:
       # Groq config (when AI_PROVIDER=groq)
       - GROQ_API_KEY=${GROQ_API_KEY}
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     restart: unless-stopped
     volumes:
       - ./tmp_debug:/tmp/clab-debug # Optional: mapped volume for debugging if needed
@@ -43,6 +44,11 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d clab"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
 volumes:
   postgres_data:

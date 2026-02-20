@@ -9,6 +9,24 @@ import (
 	"github.com/vitub/CLabServer/internal/models"
 )
 
+func isTeacherOfClassroom(userID uint, classroom *models.Classroom) bool {
+	if classroom.TeacherID == userID {
+		return true
+	}
+	for _, t := range classroom.Teachers {
+		if t.ID == userID {
+			return true
+		}
+	}
+	return false
+}
+
+func loadClassroomWithTeachers(classroomID string) (*models.Classroom, error) {
+	var classroom models.Classroom
+	err := initializers.DB.Preload("Teachers").First(&classroom, classroomID).Error
+	return &classroom, err
+}
+
 func CreateClassroom(c *gin.Context) {
 	var req dtos.CreateClassroomRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -45,10 +63,11 @@ func ListClassrooms(c *gin.Context) {
 
 	var classrooms []models.Classroom
 
-	query := initializers.DB.Preload("Teacher").Preload("Students").Model(&models.Classroom{})
+	query := initializers.DB.Preload("Teacher").Preload("Teachers").Preload("Students").Model(&models.Classroom{})
 
 	if currentUser.Role == models.RoleTeacher {
-		query = query.Where("teacher_id = ?", currentUser.ID)
+		query = query.Where("teacher_id = ?", currentUser.ID).
+			Or("id IN (SELECT classroom_id FROM classroom_teachers WHERE user_id = ?)", currentUser.ID)
 	} else if currentUser.Role == models.RoleUser {
 		query = query.Joins("JOIN classroom_students cs ON cs.classroom_id = classrooms.id").
 			Where("cs.user_id = ?", currentUser.ID)
@@ -64,6 +83,16 @@ func ListClassrooms(c *gin.Context) {
 		var totalExercises int64
 		initializers.DB.Model(&models.Exercise{}).Where("classroom_id = ?", class.ID).Count(&totalExercises)
 
+		var teachersResp []dtos.UserResponse
+		for _, t := range class.Teachers {
+			teachersResp = append(teachersResp, dtos.UserResponse{
+				ID:    t.ID,
+				Name:  t.Name,
+				Email: t.Email,
+				Role:  t.Role,
+			})
+		}
+
 		response = append(response, dtos.ClassroomResponse{
 			ID:           class.ID,
 			Name:         class.Name,
@@ -75,6 +104,7 @@ func ListClassrooms(c *gin.Context) {
 				Email: class.Teacher.Email,
 				Role:  class.Teacher.Role,
 			},
+			Teachers: teachersResp,
 			Students: func() []dtos.UserResponse {
 				var students []dtos.UserResponse
 				for _, s := range class.Students {
@@ -105,9 +135,9 @@ func ListClassrooms(c *gin.Context) {
 	})
 }
 
-func AddStudent(c *gin.Context) {
+func AddTeacher(c *gin.Context) {
 	classroomID := c.Param("id")
-	var req dtos.AddStudentRequest
+	var req dtos.AddTeacherRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, dtos.ErrorResponse{Error: err.Error()})
 		return
@@ -123,6 +153,80 @@ func AddStudent(c *gin.Context) {
 	}
 
 	if classroom.TeacherID != currentUser.ID {
+		c.JSON(http.StatusForbidden, dtos.ErrorResponse{Error: "Only the owner can add teachers"})
+		return
+	}
+
+	var teacher models.User
+	if err := initializers.DB.Where("email = ? AND role = ?", req.Email, models.RoleTeacher).First(&teacher).Error; err != nil {
+		c.JSON(http.StatusNotFound, dtos.ErrorResponse{Error: "Teacher not found with that email"})
+		return
+	}
+
+	if err := initializers.DB.Model(&classroom).Association("Teachers").Append(&teacher); err != nil {
+		c.JSON(http.StatusInternalServerError, dtos.ErrorResponse{Error: "Failed to add teacher"})
+		return
+	}
+
+	c.JSON(http.StatusOK, dtos.SuccessResponse{
+		Success: true,
+		Message: "Teacher added successfully",
+	})
+}
+
+func RemoveTeacher(c *gin.Context) {
+	classroomID := c.Param("id")
+	teacherID := c.Param("teacherId")
+
+	user, _ := c.Get("user")
+	currentUser := user.(models.User)
+
+	var classroom models.Classroom
+	if err := initializers.DB.First(&classroom, classroomID).Error; err != nil {
+		c.JSON(http.StatusNotFound, dtos.ErrorResponse{Error: "Classroom not found"})
+		return
+	}
+
+	if classroom.TeacherID != currentUser.ID {
+		c.JSON(http.StatusForbidden, dtos.ErrorResponse{Error: "Only the owner can remove teachers"})
+		return
+	}
+
+	var teacher models.User
+	if err := initializers.DB.First(&teacher, teacherID).Error; err != nil {
+		c.JSON(http.StatusNotFound, dtos.ErrorResponse{Error: "Teacher not found"})
+		return
+	}
+
+	if err := initializers.DB.Model(&classroom).Association("Teachers").Delete(&teacher); err != nil {
+		c.JSON(http.StatusInternalServerError, dtos.ErrorResponse{Error: "Failed to remove teacher"})
+		return
+	}
+
+	c.JSON(http.StatusOK, dtos.SuccessResponse{
+		Success: true,
+		Message: "Teacher removed successfully",
+	})
+}
+
+func AddStudent(c *gin.Context) {
+	classroomID := c.Param("id")
+	var req dtos.AddStudentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dtos.ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	user, _ := c.Get("user")
+	currentUser := user.(models.User)
+
+	classroom, err := loadClassroomWithTeachers(classroomID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, dtos.ErrorResponse{Error: "Classroom not found"})
+		return
+	}
+
+	if !isTeacherOfClassroom(currentUser.ID, classroom) {
 		c.JSON(http.StatusForbidden, dtos.ErrorResponse{Error: "Not authorized to manage this classroom"})
 		return
 	}
@@ -166,7 +270,7 @@ func DeleteClassroom(c *gin.Context) {
 	}
 
 	if classroom.TeacherID != currentUser.ID {
-		c.JSON(http.StatusForbidden, dtos.ErrorResponse{Error: "Not authorized to delete this classroom"})
+		c.JSON(http.StatusForbidden, dtos.ErrorResponse{Error: "Only the owner can delete this classroom"})
 		return
 	}
 
@@ -180,6 +284,7 @@ func DeleteClassroom(c *gin.Context) {
 		Message: "Classroom deleted successfully",
 	})
 }
+
 func RemoveStudent(c *gin.Context) {
 	classroomID := c.Param("id")
 	studentID := c.Param("studentId")
@@ -187,13 +292,13 @@ func RemoveStudent(c *gin.Context) {
 	user, _ := c.Get("user")
 	currentUser := user.(models.User)
 
-	var classroom models.Classroom
-	if err := initializers.DB.First(&classroom, classroomID).Error; err != nil {
+	classroom, err := loadClassroomWithTeachers(classroomID)
+	if err != nil {
 		c.JSON(http.StatusNotFound, dtos.ErrorResponse{Error: "Classroom not found"})
 		return
 	}
 
-	if classroom.TeacherID != currentUser.ID {
+	if !isTeacherOfClassroom(currentUser.ID, classroom) {
 		c.JSON(http.StatusForbidden, dtos.ErrorResponse{Error: "Not authorized to manage this classroom"})
 		return
 	}
@@ -226,13 +331,13 @@ func ToggleExamMode(c *gin.Context) {
 	user, _ := c.Get("user")
 	currentUser := user.(models.User)
 
-	var classroom models.Classroom
-	if err := initializers.DB.First(&classroom, classroomID).Error; err != nil {
+	classroom, err := loadClassroomWithTeachers(classroomID)
+	if err != nil {
 		c.JSON(http.StatusNotFound, dtos.ErrorResponse{Error: "Classroom not found"})
 		return
 	}
 
-	if classroom.TeacherID != currentUser.ID {
+	if !isTeacherOfClassroom(currentUser.ID, classroom) {
 		c.JSON(http.StatusForbidden, dtos.ErrorResponse{Error: "Not authorized to manage this classroom"})
 		return
 	}
