@@ -61,6 +61,7 @@ func SetupRoutes(r *gin.Engine, hub *ws.Hub) {
 
 		classrooms.POST("/:id/topics", handlers.CreateTopic)
 		classrooms.GET("/:id/topics", handlers.ListTopics)
+		classrooms.DELETE("/:id/topics/:topicId", handlers.DeleteTopic)
 
 		classrooms.POST("/:id/exercises", handlers.CreateExercise)
 		classrooms.GET("/:id/exercises", handlers.ListExercises)

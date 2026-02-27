@@ -95,3 +95,38 @@ func ListTopics(c *gin.Context) {
 		Data:    response,
 	})
 }
+
+func DeleteTopic(c *gin.Context) {
+	classroomId := c.Param("id")
+	topicId := c.Param("topicId")
+
+	user, _ := c.Get("user")
+	currentUser := user.(models.User)
+
+	classroom, err := loadClassroomWithTeachers(classroomId)
+	if err != nil {
+		c.JSON(http.StatusNotFound, dtos.ErrorResponse{Error: "Classroom not found"})
+		return
+	}
+
+	if !isTeacherOfClassroom(currentUser.ID, classroom) {
+		c.JSON(http.StatusForbidden, dtos.ErrorResponse{Error: "Not authorized"})
+		return
+	}
+
+	var topic models.ExerciseTopic
+	if err := initializers.DB.Where("id = ? AND classroom_id = ?", topicId, classroomId).First(&topic).Error; err != nil {
+		c.JSON(http.StatusNotFound, dtos.ErrorResponse{Error: "Topic not found"})
+		return
+	}
+
+	if err := initializers.DB.Delete(&topic).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, dtos.ErrorResponse{Error: "Failed to delete topic"})
+		return
+	}
+
+	c.JSON(http.StatusOK, dtos.SuccessResponse{
+		Success: true,
+		Message: "Topic deleted successfully",
+	})
+}

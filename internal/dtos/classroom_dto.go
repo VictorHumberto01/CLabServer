@@ -5,14 +5,15 @@ type CreateClassroomRequest struct {
 }
 
 type ClassroomResponse struct {
-	ID           uint           `json:"id"`
-	Name         string         `json:"name"`
-	TeacherID    uint           `json:"teacherId"`
-	Teacher      *UserResponse  `json:"teacher,omitempty"`
-	Teachers     []UserResponse `json:"teachers,omitempty"`
-	Students     []UserResponse `json:"students,omitempty"`
-	StudentCount int            `json:"studentCount"`
-	ActiveExamID *uint          `json:"activeExamId"`
+	ID                  uint           `json:"id"`
+	Name                string         `json:"name"`
+	TeacherID           uint           `json:"teacherId"`
+	Teacher             *UserResponse  `json:"teacher,omitempty"`
+	Teachers            []UserResponse `json:"teachers,omitempty"`
+	Students            []UserResponse `json:"students,omitempty"`
+	StudentCount        int            `json:"studentCount"`
+	ActiveExamID        *uint          `json:"activeExamId"`
+	ActiveExamCompleted bool           `json:"activeExamCompleted"`
 }
 
 type UpdateClassroomExamRequest struct {

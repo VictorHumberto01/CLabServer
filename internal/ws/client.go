@@ -294,9 +294,10 @@ func (c *Client) startCompilationAndRun(code string, exerciseID uint) {
 			}
 
 			if isExam {
-				analysisForTeacher, err := ai.GetErrorAnalysis(code, errorOutput)
+				gradingRes, err := ai.GetExamErrorAnalysis(code, errorOutput)
 				if err == nil {
-					history.TeacherGrading = analysisForTeacher
+					history.TeacherGrading = gradingRes.Feedback
+					history.Score = gradingRes.Score
 				}
 			} else {
 				history.AIAnalysis = analysis
@@ -376,7 +377,6 @@ func (c *Client) startCompilationAndRun(code string, exerciseID uint) {
 			} else {
 				aiAnalysisStored = analysis
 				c.sendAIAnalysis(analysis, "success")
-				c.sendOutput("\r\n[AI]: Analysis sent to side panel.\r\n")
 			}
 		} else if exerciseID > 0 {
 			c.sendOutput("\r\nAvaliando Exercício...")
@@ -404,21 +404,6 @@ func (c *Client) startCompilationAndRun(code string, exerciseID uint) {
 					isSuccess = true
 
 				} else {
-					grading, aiErr := ai.GetGradingAnalysis(code, string(fullOutput), exercise.ExpectedOutput)
-					if aiErr != nil {
-						c.sendOutput("\r\nFalha na avaliação da IA: " + aiErr.Error())
-					} else {
-						aiAnalysisStored = grading.Feedback
-						isSuccess = grading.Passed
-
-						if isSuccess {
-							c.sendOutput("\r\n[Sucesso]: Exercício completado corretamente!")
-						} else {
-							c.sendOutput("\r\n[Atenção]: A saída não corresponde ao esperado ou a lógica está incorreta.")
-						}
-					}
-
-					c.sendOutput("\r\nAnalyzing...")
 					analysis, aiErr := ai.GetAIAnalysis(code, string(fullOutput))
 					if aiErr != nil {
 						c.sendOutput("\r\nAI Analysis failed: " + aiErr.Error())
@@ -426,6 +411,7 @@ func (c *Client) startCompilationAndRun(code string, exerciseID uint) {
 						aiAnalysisStored = analysis
 						c.sendAIAnalysis(analysis, "success")
 					}
+					isSuccess = true
 				}
 			}
 		}

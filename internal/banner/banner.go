@@ -7,7 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const Version = "0.0.1-INDEV"
+const Version = "0.3.5-INDEV"
 
 const (
 	colorReset  = "\033[0m"

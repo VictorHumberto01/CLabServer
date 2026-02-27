@@ -165,10 +165,46 @@ type ExamGradingResult struct {
 	Feedback string  `json:"feedback"`
 }
 
+func GetExamErrorAnalysis(code string, errorMessage string) (ExamGradingResult, error) {
+	prompt := fmt.Sprintf(`Você é um professor de programação C avaliando uma PROVA. O código do aluno **falhou ao compilar**.
+	
+	OBJETIVO: Explicar detalhadamente para o professor o motivo da falha. O aluno NÃO verá este feedback.
+	
+	CODIGO DO ALUNO:
+	%s
+	
+	ERRO DE COMPILAÇÃO:
+	%s
+	
+	RESPONDA APENAS UM JSON VÁLIDO no seguinte formato:
+	{
+		"score": 0.0,
+		"feedback": "Explicação técnica clara e direta do porquê o código não compila."
+	}`, code, errorMessage)
+
+	response, err := callAI(prompt)
+	if err != nil {
+		return ExamGradingResult{Score: 0, Feedback: "Erro ao chamar IA: " + err.Error()}, err
+	}
+
+	cleanResponse := removeMarkdown(response)
+	var result ExamGradingResult
+	if err := json.Unmarshal([]byte(cleanResponse), &result); err != nil {
+		result = extractScoreFromText(response, 0)
+		if result.Score == 0 && result.Feedback == "" {
+			return ExamGradingResult{Score: 0, Feedback: "Erro de compilação. Falha ao parsear explicação da IA: " + response}, nil
+		}
+	}
+
+	return result, nil
+}
+
 func GetExamGradingAnalysis(code string, output string, expectedOutput string, maxNote float64) (ExamGradingResult, error) {
 	prompt := fmt.Sprintf(`Você é um professor de programação C avaliando uma PROVA.
 	
-	OBJETIVO: Dar uma NOTA e um FEEDBACK para o professor (O ALUNO NÃO VERÁ ISSO).
+	OBJETIVO: Dar uma NOTA e um FEEDBACK DETALHADO para o professor (O ALUNO NÃO VERÁ ISSO).
+	NÃO SEJA RIGIDO DEMAIS, SE O CODIGO POSSUI LOGICA CORRETA DE TOTAL NA QUESTAO A NÃO SER QUE ALGO PEDIDO NÃO FOI CUMPRIDO.
+	NÃO EXIGA COISAS A MAIS QUE O ENUNCIADO DIZ
 	NOTA MÁXIMA: %.2f
 	
 	CRITÉRIOS:
@@ -190,8 +226,10 @@ func GetExamGradingAnalysis(code string, output string, expectedOutput string, m
 	SAIDA ESPERADA (APENAS EXEMPLO DE FORMATO):
 	%s
 	
-	RESPONDA APENAS UM JSON VÁLIDO:
-	{"score": float (de 0 a %.2f), "feedback": "Feedback técnico para o professor sobre os pontos positivos e onde o aluno errou/pode melhorar."}`, maxNote, code, output, expectedOutput, maxNote)
+	RESPONDA APENAS UM JSON VÁLIDO. 
+	AVISO DE FEEDBACK: O feedback DEVE ser detalhado. Não escreva resumos curtos como "A resposta apresenta pontos positivos". Seja técnico: explique exatamente quais partes do código estão corretas e se houver erros lógicos/matemáticos, aponte em qual linha ou bloco a lógica falha e o porquê.
+	Formato:
+	{"score": float (de 0 a %.2f), "feedback": "Análise técnica detalhada da execução e lógica do código."}`, maxNote, code, output, expectedOutput, maxNote)
 
 	response, err := callAI(prompt)
 	if err != nil {

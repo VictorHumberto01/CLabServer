@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/vitub/CLabServer/internal/dtos"
@@ -93,11 +94,37 @@ func ListClassrooms(c *gin.Context) {
 			})
 		}
 
+		activeExamCompleted := false
+		if currentUser.Role == models.RoleUser && class.ActiveExamTopicID != nil {
+			var examTopic models.ExerciseTopic
+			if err := initializers.DB.Preload("Exercises").First(&examTopic, *class.ActiveExamTopicID).Error; err == nil {
+				if examTopic.ExpireDate != nil && examTopic.ExpireDate.Before(time.Now()) {
+					activeExamCompleted = true
+				} else if len(examTopic.Exercises) > 0 {
+					var completedExamExercises int64
+					exerciseIDs := make([]uint, 0, len(examTopic.Exercises))
+					for _, ex := range examTopic.Exercises {
+						exerciseIDs = append(exerciseIDs, ex.ID)
+					}
+
+					initializers.DB.Model(&models.History{}).
+						Where("user_id = ? AND is_success = ? AND exercise_id IN ?", currentUser.ID, true, exerciseIDs).
+						Distinct("exercise_id").
+						Count(&completedExamExercises)
+
+					if completedExamExercises >= int64(len(examTopic.Exercises)) {
+						activeExamCompleted = true
+					}
+				}
+			}
+		}
+
 		response = append(response, dtos.ClassroomResponse{
-			ID:           class.ID,
-			Name:         class.Name,
-			TeacherID:    class.TeacherID,
-			ActiveExamID: class.ActiveExamTopicID,
+			ID:                  class.ID,
+			Name:                class.Name,
+			TeacherID:           class.TeacherID,
+			ActiveExamID:        class.ActiveExamTopicID,
+			ActiveExamCompleted: activeExamCompleted,
 			Teacher: &dtos.UserResponse{
 				ID:    class.Teacher.ID,
 				Name:  class.Teacher.Name,
