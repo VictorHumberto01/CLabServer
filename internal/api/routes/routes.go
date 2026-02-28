@@ -69,11 +69,32 @@ func SetupRoutes(r *gin.Engine, hub *ws.Hub) {
 		classrooms.POST("/:id/exam", func(c *gin.Context) {
 			handlers.ToggleExamMode(c, hub)
 		})
+
+		classrooms.POST("/:id/generate-questions", handlers.GenerateQuestions)
 	}
 
 	history := r.Group("/history")
 	history.Use(middleware.RequireAuth)
 	{
 		history.GET("", handlers.ListHistory)
+	}
+
+	exams := r.Group("/exams")
+	exams.Use(middleware.RequireAuth)
+	{
+		exams.GET("", handlers.ListExams)
+		exams.POST("", handlers.CreateExam)
+		exams.POST("/:id/assign", handlers.AssignExamToClassroom)
+		exams.PUT("/:id/folder", handlers.MoveExamToFolder)
+		exams.DELETE("/:id", handlers.DeleteExam)
+	}
+
+	folders := r.Group("/folders")
+	folders.Use(middleware.RequireAuth)
+	{
+		folders.GET("", handlers.ListFolders)
+		folders.POST("", handlers.CreateFolder)
+		folders.PUT("/:id", handlers.RenameFolder)
+		folders.DELETE("/:id", handlers.DeleteFolder)
 	}
 }

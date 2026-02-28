@@ -378,7 +378,7 @@ func ToggleExamMode(c *gin.Context, hub *ws.Hub) {
 			c.JSON(http.StatusBadRequest, dtos.ErrorResponse{Error: "Exam topic not found"})
 			return
 		}
-		if topic.ClassroomID != classroom.ID {
+		if topic.ClassroomID == nil || *topic.ClassroomID != classroom.ID {
 			c.JSON(http.StatusBadRequest, dtos.ErrorResponse{Error: "Topic does not belong to this classroom"})
 			return
 		}

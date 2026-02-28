@@ -16,7 +16,7 @@ type CreateExerciseRequest struct {
 
 type ExerciseResponse struct {
 	ID             uint    `json:"id"`
-	ClassroomID    uint    `json:"classroomId"`
+	ClassroomID    *uint   `json:"classroomId"`
 	TopicID        *uint   `json:"topicId"`
 	Title          string  `json:"title"`
 	Description    string  `json:"description"`
@@ -41,7 +41,7 @@ type CreateExerciseGroupRequest struct {
 
 type TopicResponse struct {
 	ID          uint               `json:"id"`
-	ClassroomID uint               `json:"classroomId"`
+	ClassroomID *uint              `json:"classroomId"`
 	Title       string             `json:"title"`
 	Exercises   []ExerciseResponse `json:"exercises,omitempty"`
 	ExpireDate  *time.Time         `json:"expireDate"`

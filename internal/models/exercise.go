@@ -6,8 +6,8 @@ import (
 
 type Exercise struct {
 	gorm.Model
-	ClassroomID    uint           `json:"classroomId" gorm:"not null"`
-	Classroom      Classroom      `json:"classroom,omitempty" gorm:"foreignKey:ClassroomID"`
+	ClassroomID    *uint          `json:"classroomId"`
+	Classroom      *Classroom     `json:"classroom,omitempty" gorm:"foreignKey:ClassroomID"`
 	TopicID        *uint          `json:"topicId"`
 	Topic          *ExerciseTopic `json:"topic,omitempty" gorm:"foreignKey:TopicID"`
 	Title          string         `json:"title" gorm:"not null"`

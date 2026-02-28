@@ -34,7 +34,7 @@ func CreateExercise(c *gin.Context) {
 
 	// Create Exercise
 	exercise := models.Exercise{
-		ClassroomID:    classroom.ID,
+		ClassroomID:    &classroom.ID,
 		TopicID:        req.TopicID,
 		Title:          req.Title,
 		Description:    req.Description,

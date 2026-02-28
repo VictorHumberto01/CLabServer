@@ -34,7 +34,8 @@ func CreateTopic(c *gin.Context) {
 	}
 
 	topic := models.ExerciseTopic{
-		ClassroomID: classroom.ID,
+		ClassroomID: &classroom.ID,
+		TeacherID:   currentUser.ID,
 		Title:       req.Title,
 		ExpireDate:  req.ExpireDate,
 		IsExam:      req.IsExam,
@@ -49,7 +50,7 @@ func CreateTopic(c *gin.Context) {
 	for _, group := range req.Exercises {
 		for _, variant := range group.Variants {
 			exercise := models.Exercise{
-				ClassroomID:    classroom.ID,
+				ClassroomID:    &classroom.ID,
 				TopicID:        &topic.ID,
 				Title:          variant.Title,
 				Description:    variant.Description,
