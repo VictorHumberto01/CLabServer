@@ -56,6 +56,7 @@ type WSMsg struct {
 	Rows       int    `json:"rows,omitempty"`
 	Cols       int    `json:"cols,omitempty"`
 	ExerciseID uint   `json:"exerciseId,omitempty"`
+	IsExam     bool   `json:"isExam,omitempty"`
 }
 
 type MonitorMsg struct {
@@ -144,7 +145,7 @@ func (c *Client) readPump() {
 				c.cmd.Process.Kill()
 			}
 			c.mu.Unlock()
-			go c.startCompilationAndRun(msg.Payload, msg.ExerciseID)
+			go c.startCompilationAndRun(msg.Payload, msg.ExerciseID, msg.IsExam)
 		case "stop":
 			c.mu.Lock()
 			if c.cmd != nil && c.cmd.Process != nil {
@@ -227,8 +228,8 @@ func ServeWs(hub *Hub, c *gin.Context) {
 	go client.readPump()
 }
 
-func (c *Client) startCompilationAndRun(code string, exerciseID uint) {
-	log.Printf("WS: Starting Run/Submission. UserID: %s (DBID: %d), Name: %s, ExerciseID: %d", c.UserID, c.UserDBID, c.Name, exerciseID)
+func (c *Client) startCompilationAndRun(code string, exerciseID uint, isExamRun bool) {
+	log.Printf("WS: Starting Run/Submission. UserID: %s (DBID: %d), Name: %s, ExerciseID: %d, IsExamRun: %v", c.UserID, c.UserDBID, c.Name, exerciseID, isExamRun)
 	c.broadcastMonitor("compile_start", "Starting compilation...")
 
 	tmpDir, err := os.MkdirTemp("", "cws")
@@ -242,11 +243,34 @@ func (c *Client) startCompilationAndRun(code string, exerciseID uint) {
 	binPath := tmpDir + "/program"
 	os.WriteFile(srcPath, []byte(code), 0644)
 
-	var isExam bool
+	var isExam bool = isExamRun
 	if exerciseID > 0 {
 		var exercise models.Exercise
 		if err := initializers.DB.Preload("Topic").First(&exercise, exerciseID).Error; err == nil {
 			isExam = exercise.Topic != nil && exercise.Topic.IsExam
+		}
+
+		// Block resubmission if it is an exam AND it is an actual submission, not a test run
+		if isExam && c.UserDBID != 0 && exerciseID > 0 {
+			var existingSubmission int64
+			initializers.DB.Model(&models.History{}).
+				Where("user_id = ? AND exercise_id = ?", c.UserDBID, exerciseID).
+				Count(&existingSubmission)
+
+			if existingSubmission > 0 {
+				log.Printf("WS: Blocked duplicate exam submission. UserID: %s, ExerciseID: %d", c.UserID, exerciseID)
+				c.sendOutput("\r\n\x1b[31m[MODO PROVA]\x1b[0m: Você já submeteu uma resposta para este exercício. Alterações não são mais permitidas.\r\n")
+				c.broadcastMonitor("compile_end", "Duplicate submission blocked")
+
+				statusMsg := WSMsg{
+					Type:    "status",
+					Payload: "stopped",
+				}
+				if statusBytes, err := json.Marshal(statusMsg); err == nil {
+					c.sendOutput(string(statusBytes))
+				}
+				return
+			}
 		}
 	}
 
@@ -351,15 +375,19 @@ func (c *Client) startCompilationAndRun(code string, exerciseID uint) {
 			if err.Error() == "signal: killed" {
 				c.sendOutput(fmt.Sprintf("\r\n[Runtime Error]: %v", err))
 			} else {
-				c.sendOutput(fmt.Sprintf("\r\n[Runtime Error]: %v\r\nAnalyzing...", err))
-
-				analysis, aiErr := ai.GetErrorAnalysis(code, string(fullOutput))
-				if aiErr != nil {
-					c.sendOutput("\r\nAI Analysis failed: " + aiErr.Error())
+				if isExamRun {
+					c.sendOutput(fmt.Sprintf("\r\n[Runtime Error]: %v\r\n[MODO PROVA] IA desativada.\r\n", err))
 				} else {
-					aiAnalysisStored = analysis
-					c.sendAIAnalysis(analysis, "error")
-					c.sendOutput("\r\n[AI]: Analysis sent to side panel.\r\n")
+					c.sendOutput(fmt.Sprintf("\r\n[Runtime Error]: %v\r\nAnalyzing...", err))
+
+					analysis, aiErr := ai.GetErrorAnalysis(code, string(fullOutput))
+					if aiErr != nil {
+						c.sendOutput("\r\nAI Analysis failed: " + aiErr.Error())
+					} else {
+						aiAnalysisStored = analysis
+						c.sendAIAnalysis(analysis, "error")
+						c.sendOutput("\r\n[AI]: Analysis sent to side panel.\r\n")
+					}
 				}
 			}
 		} else {
@@ -369,14 +397,19 @@ func (c *Client) startCompilationAndRun(code string, exerciseID uint) {
 		isSuccess = true
 
 		if exerciseID == 0 {
-			// Normal code run - perform AI analysis
-			c.sendOutput("\r\nAnalyzing...")
-			analysis, aiErr := ai.GetAIAnalysis(code, string(fullOutput))
-			if aiErr != nil {
-				c.sendOutput("\r\nAI Analysis failed: " + aiErr.Error())
+			if isExamRun {
+				// MODO PROVA - no AI
+				c.sendOutput("\r\n[MODO PROVA] Execução finalizada. (IA desativada)\r\n")
 			} else {
-				aiAnalysisStored = analysis
-				c.sendAIAnalysis(analysis, "success")
+				// Normal code run - perform AI analysis
+				c.sendOutput("\r\nAnalyzing...")
+				analysis, aiErr := ai.GetAIAnalysis(code, string(fullOutput))
+				if aiErr != nil {
+					c.sendOutput("\r\nAI Analysis failed: " + aiErr.Error())
+				} else {
+					aiAnalysisStored = analysis
+					c.sendAIAnalysis(analysis, "success")
+				}
 			}
 		} else if exerciseID > 0 {
 			c.sendOutput("\r\nAvaliando Exercício...")

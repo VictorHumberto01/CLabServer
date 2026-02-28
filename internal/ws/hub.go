@@ -94,3 +94,7 @@ func (h *Hub) BroadcastToMonitors(message []byte) {
 		}
 	}
 }
+
+func (h *Hub) BroadcastToAll(message []byte) {
+	h.broadcast <- message
+}

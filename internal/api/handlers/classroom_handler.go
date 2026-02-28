@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -8,6 +10,7 @@ import (
 	"github.com/vitub/CLabServer/internal/dtos"
 	"github.com/vitub/CLabServer/internal/initializers"
 	"github.com/vitub/CLabServer/internal/models"
+	"github.com/vitub/CLabServer/internal/ws"
 )
 
 func isTeacherOfClassroom(userID uint, classroom *models.Classroom) bool {
@@ -347,7 +350,7 @@ func RemoveStudent(c *gin.Context) {
 	})
 }
 
-func ToggleExamMode(c *gin.Context) {
+func ToggleExamMode(c *gin.Context, hub *ws.Hub) {
 	classroomID := c.Param("id")
 	var req dtos.UpdateClassroomExamRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -388,6 +391,17 @@ func ToggleExamMode(c *gin.Context) {
 	if err := initializers.DB.Model(&classroom).Update("active_exam_topic_id", req.ActiveExamID).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, dtos.ErrorResponse{Error: "Failed to update exam mode"})
 		return
+	}
+
+	// Notify all connected clients that an exam just started or stopped
+	if hub != nil {
+		msg := ws.WSMsg{
+			Type:    "exam_status_changed",
+			Payload: fmt.Sprintf("%d", classroom.ID),
+		}
+		if msgBytes, err := json.Marshal(msg); err == nil {
+			hub.BroadcastToAll(msgBytes)
+		}
 	}
 
 	c.JSON(http.StatusOK, dtos.SuccessResponse{

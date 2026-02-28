@@ -11,6 +11,7 @@ type CreateExerciseRequest struct {
 	ExpectedOutput string  `json:"expectedOutput"`
 	InitialCode    string  `json:"initialCode"`
 	ExamMaxNote    float64 `json:"examMaxNote"`
+	VariantGroupID string  `json:"variantGroupId"`
 }
 
 type ExerciseResponse struct {
@@ -23,12 +24,19 @@ type ExerciseResponse struct {
 	InitialCode    string  `json:"initialCode"`
 	CreatedAt      string  `json:"createdAt"`
 	ExamMaxNote    float64 `json:"examMaxNote"`
+	VariantGroupID string  `json:"variantGroupId"`
 }
 
 type CreateTopicRequest struct {
-	Title      string     `json:"title" binding:"required"`
-	ExpireDate *time.Time `json:"expireDate"`
-	IsExam     bool       `json:"isExam"`
+	Title      string                       `json:"title" binding:"required"`
+	ExpireDate *time.Time                   `json:"expireDate"`
+	IsExam     bool                         `json:"isExam"`
+	Exercises  []CreateExerciseGroupRequest `json:"exercises"`
+}
+
+type CreateExerciseGroupRequest struct {
+	VariantGroupID string                  `json:"variantGroupId"`
+	Variants       []CreateExerciseRequest `json:"variants"`
 }
 
 type TopicResponse struct {

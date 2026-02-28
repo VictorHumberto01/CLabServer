@@ -66,7 +66,9 @@ func SetupRoutes(r *gin.Engine, hub *ws.Hub) {
 		classrooms.POST("/:id/exercises", handlers.CreateExercise)
 		classrooms.GET("/:id/exercises", handlers.ListExercises)
 
-		classrooms.POST("/:id/exam", handlers.ToggleExamMode)
+		classrooms.POST("/:id/exam", func(c *gin.Context) {
+			handlers.ToggleExamMode(c, hub)
+		})
 	}
 
 	history := r.Group("/history")

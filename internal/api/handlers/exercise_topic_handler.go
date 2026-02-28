@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"fmt"
+	"hash/fnv"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -43,6 +45,23 @@ func CreateTopic(c *gin.Context) {
 		return
 	}
 
+	// Create nested exercises if any
+	for _, group := range req.Exercises {
+		for _, variant := range group.Variants {
+			exercise := models.Exercise{
+				ClassroomID:    classroom.ID,
+				TopicID:        &topic.ID,
+				Title:          variant.Title,
+				Description:    variant.Description,
+				ExpectedOutput: variant.ExpectedOutput,
+				InitialCode:    variant.InitialCode,
+				ExamMaxNote:    variant.ExamMaxNote,
+				VariantGroupID: group.VariantGroupID,
+			}
+			initializers.DB.Create(&exercise)
+		}
+	}
+
 	c.JSON(http.StatusCreated, dtos.SuccessResponse{
 		Success: true,
 		Data: dtos.TopicResponse{
@@ -57,11 +76,48 @@ func CreateTopic(c *gin.Context) {
 
 func ListTopics(c *gin.Context) {
 	classroomId := c.Param("id")
+	user, _ := c.Get("user")
+	currentUser := user.(models.User)
 
 	var topics []models.ExerciseTopic
 	if err := initializers.DB.Preload("Exercises").Where("classroom_id = ?", classroomId).Find(&topics).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, dtos.ErrorResponse{Error: "Failed to fetch topics"})
 		return
+	}
+
+	// Filter variants for students
+	if currentUser.Role == models.RoleUser {
+		for i := range topics {
+			if topics[i].IsExam && len(topics[i].Exercises) > 0 {
+				grouped := make(map[string][]models.Exercise)
+				var noGroup []models.Exercise
+
+				for _, ex := range topics[i].Exercises {
+					if ex.VariantGroupID != "" {
+						grouped[ex.VariantGroupID] = append(grouped[ex.VariantGroupID], ex)
+					} else {
+						noGroup = append(noGroup, ex)
+					}
+				}
+
+				var filteredExercises []models.Exercise
+				filteredExercises = append(filteredExercises, noGroup...)
+
+				for groupId, groupVars := range grouped {
+					if len(groupVars) == 1 {
+						filteredExercises = append(filteredExercises, groupVars[0])
+					} else if len(groupVars) > 1 {
+						// Deterministic hash based on Student ID, Topic ID, and Variant Group ID
+						hashInput := fmt.Sprintf("%d-%d-%s", currentUser.ID, topics[i].ID, groupId)
+						h := fnv.New32a()
+						h.Write([]byte(hashInput))
+						selectedIndex := h.Sum32() % uint32(len(groupVars))
+						filteredExercises = append(filteredExercises, groupVars[selectedIndex])
+					}
+				}
+				topics[i].Exercises = filteredExercises
+			}
+		}
 	}
 
 	var response []dtos.TopicResponse
@@ -77,6 +133,7 @@ func ListTopics(c *gin.Context) {
 				ExpectedOutput: ex.ExpectedOutput,
 				InitialCode:    ex.InitialCode,
 				ExamMaxNote:    ex.ExamMaxNote,
+				VariantGroupID: ex.VariantGroupID,
 				CreatedAt:      ex.CreatedAt.Format("2006-01-02 15:04:05"),
 			})
 		}
