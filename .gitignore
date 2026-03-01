@@ -1,0 +1,80 @@
+# ========================
+# Go build artifacts
+# ========================
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Go module download cache
+vendor/
+
+# ========================
+# Test & debug files (not part of the project)
+# ========================
+
+# Shell test/attack/verify scripts
+test_*.sh
+setup_exam_test.sh
+attack_*.sh
+verify_*.sh
+clean_*.sh
+
+# Test artefacts
+test_*.go
+test_*.txt
+verify_*.txt
+
+# One-off helper files
+security_check.go
+security_test.go
+test_gcc.go
+test_firejail.go
+test_pty.go
+create_exercise.py
+
+# Compiled binary artifacts (built locally, not to be committed)
+clab-server
+clab_server
+server
+tmp_server
+
+# Local databases
+*.db
+
+# HTTP debug files
+cookies.txt
+
+# Ad-hoc JSON output files
+*.json
+# Temporary debug output volumes
+tmp_debug/
+
+# ========================
+# Environment / secrets
+# ========================
+.env
+.env.local
+.env.*.local
+
+# ========================
+# Docker build context
+# ========================
+*.tar
+
+# ========================
+# IDE / editor files
+# ========================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ========================
+# OS-specific files
+# ========================
+.DS_Store
+Thumbs.db

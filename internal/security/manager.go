@@ -88,6 +88,7 @@ func NewSecurityManager() *SecurityManager {
 //
 // This guarantees that even if a malicious program executes destructive system calls, it
 // only impacts a customized, unprivileged throwaway instance that is instantly destroyed.
+// Note that this new implementation is slower than the older caused by container overhead.
 
 // TODO: To reduce container overhead, I could implement a container pool.
 // However, this would require a more complex cleanup mechanism to ensure that
