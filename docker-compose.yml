@@ -3,22 +3,20 @@ services:
     build: .
     container_name: clab-server
     ports:
-      - "8080:8080"
+      - "${PORT:-8080}:${PORT:-8080}"
     # Mount Docker socket so the server can spawn sandbox containers
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./tmp_debug:/tmp/clab-debug # Optional: mapped volume for debugging if needed
     environment:
-      - PORT=8080
-      - GIN_MODE=release
-      - DATABASE_URL=host=db user=user password=password dbname=clab port=5432 sslmode=disable
-      - JWT_SECRET=secret
-      # AI Provider: 'ollama' or 'groq'
-      - AI_PROVIDER=groq
-      # Ollama config (when AI_PROVIDER=ollama)
-      - OLLAMA_URL=http://host.docker.internal:11434
-      - OLLAMA_MODEL=llama3.2:1b
-      # Groq config (when AI_PROVIDER=groq)
+      - PORT=${PORT:-8080}
+      - GIN_MODE=${GIN_MODE:-release}
+      # Forces connection to the 'db' container locally, using credentials from .env
+      - DATABASE_URL=host=db user=${DB_USER:-user} password=${DB_PASSWORD:-password} dbname=${DB_NAME:-clab} port=5432 sslmode=disable
+      - JWT_SECRET=${JWT_SECRET:-secret}
+      - AI_PROVIDER=${AI_PROVIDER:-groq}
+      - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.2:1b}
       - GROQ_API_KEY=${GROQ_API_KEY}
     depends_on:
       db:
@@ -29,15 +27,15 @@ services:
     image: postgres:alpine
     container_name: clab-db
     environment:
-      - POSTGRES_USER=user
-      - POSTGRES_PASSWORD=password
-      - POSTGRES_DB=clab
+      - POSTGRES_USER=${DB_USER:-user}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-password}
+      - POSTGRES_DB=${DB_NAME:-clab}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U user -d clab"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 5
