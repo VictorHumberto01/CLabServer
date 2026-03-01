@@ -411,7 +411,7 @@ func (c *Client) startCompilationAndRun(code string, exerciseID uint, isExamRun 
 			}
 
 			if err.Error() == "signal: killed" || exitCode == 137 {
-				c.sendOutput(fmt.Sprintf("\r\n\x1b[31m[Runtime Error]: Killed\x1b[0m\r\n\x1b[33mWARNING: Execution was forcibly terminated (SIGKILL). This may be due to malicious code (e.g., Fork Bomb, exceeding memory limits, or illegal system calls). Your activity has been logged.\x1b[0m\r\n"))
+				c.sendOutput(fmt.Sprintf("\r\n\x1b[31m[Runtime Error]: Killed\x1b[0m\r\n\x1b[33mWARNING: Execution was forcibly terminated (SIGKILL). This may be due to malicious code (e.g., Fork Bomb, exceeding memory limits, or illegal system calls).\x1b[0m\r\n"))
 			} else {
 				if isExamRun {
 					c.sendOutput(fmt.Sprintf("\r\n[Runtime Error]: %v\r\n[MODO PROVA] IA desativada.\r\n", err))
