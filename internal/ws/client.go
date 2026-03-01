@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -17,6 +18,7 @@ import (
 	"github.com/vitub/CLabServer/internal/ai"
 	"github.com/vitub/CLabServer/internal/initializers"
 	"github.com/vitub/CLabServer/internal/models"
+	"github.com/vitub/CLabServer/internal/security"
 )
 
 const (
@@ -274,8 +276,17 @@ func (c *Client) startCompilationAndRun(code string, exerciseID uint, isExamRun 
 		}
 	}
 
-	compileCmd := exec.Command("gcc", srcPath, "-o", binPath, "-Wall")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	security.DefaultManager.SetWorkspaceDir(tmpDir, false)
+	compileCmd, errCmd := security.DefaultManager.CreateSecureCommand(ctx, "gcc", srcPath, "-o", binPath, "-Wall")
+	if errCmd != nil {
+		c.sendOutput("Server Security Error: " + errCmd.Error())
+		return
+	}
 	out, err := compileCmd.CombinedOutput()
+	security.DefaultManager.CleanupContainer()
 	if err != nil {
 		errorOutput := string(out)
 
@@ -285,10 +296,14 @@ func (c *Client) startCompilationAndRun(code string, exerciseID uint, isExamRun 
 		var aiErr error
 
 		if !isExam {
-			analysis, aiErr = ai.GetErrorAnalysis(code, errorOutput)
-			if aiErr == nil {
-				c.sendAIAnalysis(analysis, "error")
-				c.sendOutput("\r\n[AI]: Compilation analysis sent to side panel.\r\n")
+			if c.Role == "GUEST" {
+				c.sendOutput("\r\n[IA indisponível] Faça login para receber análise da IA.\r\n")
+			} else {
+				analysis, aiErr = ai.GetErrorAnalysis(code, errorOutput)
+				if aiErr == nil {
+					c.sendAIAnalysis(analysis, "error")
+					c.sendOutput("\r\n[AI]: Compilation analysis sent to side panel.\r\n")
+				}
 			}
 		} else {
 			c.sendOutput("\r\n[MODO PROVA]: Detalhes do erro suprimidos. Verifique sua sintaxe.\r\n")
@@ -334,7 +349,16 @@ func (c *Client) startCompilationAndRun(code string, exerciseID uint, isExamRun 
 	}
 	c.sendOutput("Compilation successful.\r\nRunning...\r\n")
 
-	runCmd := exec.Command(binPath)
+	runCtx, runCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer runCancel()
+
+	security.DefaultManager.SetWorkspaceDir(tmpDir, true)
+
+	runCmd, errCmd := security.DefaultManager.CreateSecureCommand(runCtx, binPath)
+	if errCmd != nil {
+		c.sendOutput("Server Security Error starting execution: " + errCmd.Error())
+		return
+	}
 	ptyFile, err := pty.Start(runCmd)
 	if err != nil {
 		c.sendOutput("Error starting PTY: " + err.Error())
@@ -364,19 +388,36 @@ func (c *Client) startCompilationAndRun(code string, exerciseID uint, isExamRun 
 	}
 
 	err = runCmd.Wait()
+	security.DefaultManager.CleanupContainer()
 
 	exitMsg := "\r\nProgram exited."
 	isSuccess := false
 
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
-			exitMsg = fmt.Sprintf("\r\nProgram exited with code %d", exitErr.ExitCode())
+			exitCode := exitErr.ExitCode()
+			exitMsg = fmt.Sprintf("\r\nProgram exited with code %d", exitCode)
 
-			if err.Error() == "signal: killed" {
-				c.sendOutput(fmt.Sprintf("\r\n[Runtime Error]: %v", err))
+			var customMsg string
+			switch exitCode {
+			case 139:
+				customMsg = "\x1b[31mSegmentation fault (core dumped)\x1b[0m"
+			case 136:
+				customMsg = "\x1b[31mFloating point exception (core dumped)\x1b[0m"
+			}
+
+			if customMsg != "" {
+				c.sendOutput(fmt.Sprintf("\r\n%s\r\n", customMsg))
+			}
+
+			if err.Error() == "signal: killed" || exitCode == 137 {
+				c.sendOutput(fmt.Sprintf("\r\n\x1b[31m[Runtime Error]: Killed\x1b[0m\r\n\x1b[33mWARNING: Execution was forcibly terminated (SIGKILL). This may be due to malicious code (e.g., Fork Bomb, exceeding memory limits, or illegal system calls). Your activity has been logged.\x1b[0m\r\n"))
 			} else {
 				if isExamRun {
 					c.sendOutput(fmt.Sprintf("\r\n[Runtime Error]: %v\r\n[MODO PROVA] IA desativada.\r\n", err))
+				} else if c.Role == "GUEST" {
+					c.sendOutput(fmt.Sprintf("\r\n[Runtime Error]: %v\r\n", err))
+					c.sendOutput("[IA indisponível] Faça login para receber análise da IA.\r\n")
 				} else {
 					c.sendOutput(fmt.Sprintf("\r\n[Runtime Error]: %v\r\nAnalyzing...", err))
 
@@ -400,6 +441,9 @@ func (c *Client) startCompilationAndRun(code string, exerciseID uint, isExamRun 
 			if isExamRun {
 				// MODO PROVA - no AI
 				c.sendOutput("\r\n[MODO PROVA] Execução finalizada. (IA desativada)\r\n")
+			} else if c.Role == "GUEST" {
+				// Guest user - no AI
+				c.sendOutput("\r\n[IA indisponível] Faça login para receber análise da IA.\r\n")
 			} else {
 				// Normal code run - perform AI analysis
 				c.sendOutput("\r\nAnalyzing...")

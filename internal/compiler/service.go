@@ -14,12 +14,6 @@ import (
 	"github.com/vitub/CLabServer/internal/security"
 )
 
-var securityManager *security.SecurityManager
-
-func init() {
-	securityManager = security.NewSecurityManager()
-}
-
 func CompileAndRun(req models.CompileRequest) models.CompileResponse {
 	log.Println("Starting compilation process")
 
@@ -43,10 +37,16 @@ func CompileAndRun(req models.CompileRequest) models.CompileResponse {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	compileCmd := exec.CommandContext(ctx, "gcc", srcPath, "-o", binPath, "-Wall", "-Wextra")
+	security.DefaultManager.SetWorkspaceDir(tmpDir, false)
+	compileCmd, err := security.DefaultManager.CreateSecureCommand(ctx, "gcc", srcPath, "-o", binPath, "-Wall", "-Wextra")
+	if err != nil {
+		log.Printf("Failed to create secure compile command: %v", err)
+		return models.CompileResponse{Error: "server security configuration error creating compile sandbox"}
+	}
 	compileCmd.Dir = tmpDir
 	log.Printf("Compiling with command: gcc %s -o %s -Wall -Wextra", srcPath, binPath)
 	compileOut, err := compileCmd.CombinedOutput()
+	security.DefaultManager.CleanupContainer()
 
 	if err != nil {
 		log.Printf("Compilation failed: %v\nOutput: %s", err, string(compileOut))
@@ -63,7 +63,7 @@ func CompileAndRun(req models.CompileRequest) models.CompileResponse {
 		}
 	}
 
-	if err := securityManager.ValidateExecutable(binPath); err != nil {
+	if err := security.DefaultManager.ValidateExecutable(binPath); err != nil {
 		log.Printf("Executable validation failed: %v", err)
 		return models.CompileResponse{
 			Error: "Executable validation failed: " + err.Error(),
@@ -78,20 +78,13 @@ func CompileAndRun(req models.CompileRequest) models.CompileResponse {
 	runCtx, runCancel := context.WithTimeout(context.Background(), timeout)
 	defer runCancel()
 
-	var runCmd *exec.Cmd
+	security.DefaultManager.SetWorkspaceDir(tmpDir, true)
 
-	var cmdBuilder strings.Builder
-	cmdBuilder.WriteString("ulimit -v 131072; ")
-
-	if security.IsCommandAvailable("firejail") {
-		cmdBuilder.WriteString("firejail --quiet --noprofile --seccomp --nonetwork --private-tmp --noroot --caps.drop=all --rlimit-cpu=10 ")
-		cmdBuilder.WriteString(binPath)
-	} else {
-		log.Println("Warning: Running without sandboxing")
-		cmdBuilder.WriteString(binPath)
+	runCmd, err := security.DefaultManager.CreateSecureCommand(runCtx, binPath)
+	if err != nil {
+		log.Printf("Failed to create secure run command: %v", err)
+		return models.CompileResponse{Error: "server security configuration error creating execution sandbox"}
 	}
-
-	runCmd = exec.CommandContext(runCtx, "/bin/sh", "-c", cmdBuilder.String())
 	runCmd.Dir = tmpDir
 
 	var inputData string
@@ -111,10 +104,23 @@ func CompileAndRun(req models.CompileRequest) models.CompileResponse {
 	}
 
 	runOut, err := runCmd.CombinedOutput()
+	security.DefaultManager.CleanupContainer()
 
 	if err != nil {
 		log.Printf("Execution failed: %v\nOutput: %s", err, string(runOut))
 		errorMsg := string(runOut)
+
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			switch exitErr.ExitCode() {
+			case 139:
+				errorMsg += "\r\nSegmentation fault (core dumped)"
+			case 136:
+				errorMsg += "\r\nFloating point exception (core dumped)"
+			case 137:
+				errorMsg += "\r\nKilled"
+			}
+		}
+
 		if len(errorMsg) == 0 {
 			errorMsg = err.Error()
 		}

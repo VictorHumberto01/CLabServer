@@ -10,9 +10,11 @@ Servidor backend do CLab responsável pela compilação segura de código C, exe
 O CLab Server é o núcleo do sistema de ensino de programação C, fornecendo:
 
 - **Compilação segura** de código C em ambiente isolado
-- **Feedback inteligente** via IA local (LLaMA/Ollama)
+- **Feedback inteligente** via IA local (LLaMA/Ollama) ou cloud (Groq)
 - **API REST** para comunicação com o frontend Electron
 - **Gerenciamento de dados** com PostgreSQL
+- **Banco de Provas** com organização em pastas e atribuição de turmas
+- **Avaliação automática** de provas com IA calibrada para notas justas
 
 ## 🏗️ Arquitetura
 
@@ -31,19 +33,12 @@ graph TD;
     Compiler -->|Output & Code| AI
     API -->|Read / Write| DB
 
-    %% API Components
     API -.-> Rout(Roteamento HTTP / WS)
     API -.-> Auth(Autenticação JWT)
-
-    %% Compiler Components
-    Compiler -.-> Sand(Firejail Sandbox)
+    Compiler -.-> Sand(Docker-in-Docker Sandbox)
     Compiler -.-> Run(GCC Compilation)
-
-    %% AI Components
     AI -.-> Llama(Ollama API)
     AI -.-> Groq(Groq API)
-
-    %% DB Components
     DB -.-> PGR(PostgreSQL)
     DB -.-> Gorm(GORM ORM)
 
@@ -54,172 +49,172 @@ graph TD;
     style DB fill:#1e5c3e,stroke:#123a27,stroke-width:2px,color:#fff
 ```
 
-## 📁 Estrutura Atual do Projeto
+## 📁 Estrutura do Projeto
 
 ```
 clab-server/
-├── cmd/
-│   └── server/
-│       └── main.go             # ✅ Ponto de entrada da aplicação HTTP e Server
+├── cmd/server/main.go
 ├── internal/
-│   ├── api/                    # Handlers e rotas da API em Gin
-│   ├── ai/                     # 🧠 Módulo AI (Ollama e Groq API calls)
-│   ├── compiler/               # 🔄 Serviço de compilação seguro c/ GCC
-│   ├── dtos/                   # Data transfer objects para request body
-│   ├── initializers/           # Iniciação rápida de Environment e DB
-│   ├── models/                 # Modelos mapeados via GORM (banco PostgreSQL)
-│   ├── security/               # Auth, JWT, Utils e Firejail Checks
-│   └── ws/                     # Suporte à conexão Real-Time via WebSockets
-├── Dockerfile                  # Containerização do serviço
-├── go.mod                      # Dependências do projeto (Go 1.21+)
-└── README.md                   # Este arquivo
+│   ├── api/handlers/
+│   │   ├── exam_handler.go         # 🆕 CRUD de provas independentes de turmas
+│   │   ├── folder_handler.go       # 🆕 CRUD de pastas do banco de provas
+│   │   ├── classroom_handler.go    # Gerenciamento de turmas e ativação de provas
+│   │   ├── exercise_topic_handler.go # Tópicos/provas e seleção de variantes
+│   │   └── ...
+│   ├── ai/analysis.go              # 🧠 Módulo AI (análise, avaliação, geração)
+│   ├── compiler/                   # 🔄 Serviço de compilação seguro c/ GCC
+│   ├── models/
+│   │   ├── exam_folder.go          # 🆕 Pasta para organização de provas
+│   │   ├── exercise_topic.go       # Prova/tópico (ClassroomID nullable)
+│   │   └── ...
+│   ├── dtos/                       # Data Transfer Objects
+│   ├── initializers/               # Environment e DB setup
+│   ├── security/                   # Auth, JWT, Docker-in-Docker engine
+│   └── ws/                         # WebSockets para terminal interativo
+├── Dockerfile
+└── go.mod
 ```
 
 ## 🚀 Tecnologias Utilizadas
 
-### Backend Core (Go)
-
-- **Gin** - Framework web para API REST ✅
-- **Firejail** - Sandbox nativa de SO para execução segura ✅
-- **GCC** - Compilador C integrado ✅
-- **PostgreSQL** - Banco de dados relacional robusto e escalável ✅
-- **GORM** - ORM para manipulação avançada de banco de dados ✅
-
-### Integração Híbrida de IA
-
-- **Ollama** - Interface direta nativa HTTP para modelos LLaMA ✅
-- **Groq API** - Chamada para modelos ultra-velozes na nuvem ✅
-
-### Segurança & Autenticação
-
-- **Docker** - Containerização para sandbox escalável ✅
-- **Firejail** - Isolamento nativo para cada execução ✅
-- **JWT** - Autenticação por tokens estruturados (JSON Web Tokens) ✅
+| Camada        | Tecnologia        | Status |
+| ------------- | ----------------- | ------ |
+| Framework Web | Gin               | ✅     |
+| ORM           | GORM + PostgreSQL | ✅     |
+| Sandbox       | Docker-in-Docker  | ✅     |
+| Compilador    | GCC               | ✅     |
+| IA Local      | Ollama (LLaMA)    | ✅     |
+| IA Cloud      | Groq API          | ✅     |
+| Auth          | JWT               | ✅     |
 
 ## ⚡ Quick Start
 
-### Executar o Servidor com Docker (Recomendado)
-
-A forma mais fácil de rodar o servidor, banco de dados (PostgreSQL) e configurar a sandbox internamente é usando o Docker Compose:
+### Docker (Recomendado)
 
 ```bash
-# Clone o repositório
 git clone https://github.com/VictorHumberto01/clab-server.git
 cd clab-server
-
-# Crie um arquivo .env baseado no templateou configure as variáveis necessárias no docker-compose.yml
-# Exemplo: Defina GROQ_API_KEY se for usar o Groq
-
-# Execute os containers em segundo plano
 docker-compose up -d
 ```
 
 O servidor estará disponível em `http://localhost:8080`.
 
-### Executar o Servidor Localmente
+### Local
 
 ```bash
-# Clone o repositório
-git clone https://github.com/VictorHumberto01/clab-server.git
-cd clab-server
-
-# Instale dependências
 go mod tidy
-
-# Execute o servidor principal
 go run cmd/server/main.go
 ```
 
-O servidor estará disponível em `http://localhost:8080`
-
 ### ⚙️ Variáveis de Ambiente
 
-Para rodar o servidor, você precisará configurar algumas variáveis. O arquivo base pode ser encontrado em `.env.example`.
+| Variável       | Descrição                                 | Exemplo                                                                 |
+| -------------- | ----------------------------------------- | ----------------------------------------------------------------------- |
+| `PORT`         | Porta do servidor                         | `8080`                                                                  |
+| `GIN_MODE`     | Modo do Gin                               | `release` ou `debug`                                                    |
+| `DATABASE_URL` | String de conexão PostgreSQL              | `host=db user=user password=pass dbname=clab port=5432 sslmode=disable` |
+| `JWT_SECRET`   | Chave secreta JWT                         | `your-secret-key-here`                                                  |
+| `AI_PROVIDER`  | Provedor de IA. Padrão: `groq`            | `groq` ou `ollama`                                                      |
+| `OLLAMA_URL`   | Endpoint Ollama (se `AI_PROVIDER=ollama`) | `http://localhost:11434`                                                |
+| `OLLAMA_MODEL` | Modelo Ollama                             | `llama3.2:1b`                                                           |
+| `GROQ_API_KEY` | Chave Groq API                            | `gsk_abc123...`                                                         |
 
-| Variável       | Descrição                                                       | Exemplo                                                                 |
-| -------------- | --------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `PORT`         | Porta onde o servidor vai rodar                                 | `8080`                                                                  |
-| `GIN_MODE`     | Modo de ambiente Gin                                            | `release` ou `debug`                                                    |
-| `DATABASE_URL` | String de conexão com o PostgreSQL                              | `host=db user=user password=pass dbname=clab port=5432 sslmode=disable` |
-| `JWT_SECRET`   | Chave secreta para assinatura dos tokens JWT                    | `your-secret-key-here`                                                  |
-| `AI_PROVIDER`  | Provedor de inteligência artificial a ser usado. Padrão: `groq` | `groq` ou `ollama`                                                      |
-| `OLLAMA_URL`   | Endpoint da API do Ollama (Se `AI_PROVIDER=ollama`)             | `http://localhost:11434`                                                |
-| `OLLAMA_MODEL` | Qual modelo o Ollama deve carregar.                             | `llama3.2:1b`                                                           |
-| `GROQ_API_KEY` | Chave de API para o provedor em nuvem Groq                      | `gsk_abc123...`                                                         |
+## 📡 Endpoints da API
 
-### Testar a API
+### Autenticação
 
-```bash
-# Teste básico de compilação
-curl -X POST http://localhost:8080/compile \
-  -H "Content-Type: application/json" \
-  -d '{
-    "code": "#include <stdio.h>\nint main() {\n    printf(\"Hello, CLab!\\n\");\n    return 0;\n}",
-    "input": ""
-  }'
+| Método | Rota        | Descrição         |
+| ------ | ----------- | ----------------- |
+| `POST` | `/register` | Cria novo usuário |
+| `POST` | `/login`    | Retorna JWT       |
+
+### Turmas & Exercícios
+
+| Método | Rota                                 | Descrição                       |
+| ------ | ------------------------------------ | ------------------------------- |
+| `GET`  | `/classrooms`                        | Lista turmas do usuário         |
+| `POST` | `/classrooms`                        | Cria turma (professor)          |
+| `POST` | `/classrooms/:id/exam`               | Ativa/desativa prova numa turma |
+| `GET`  | `/classrooms/:id/topics`             | Lista exercícios da turma       |
+| `POST` | `/classrooms/:id/generate-questions` | Gera questões com IA            |
+
+### 🆕 Banco de Provas
+
+| Método   | Rota                | Descrição                                              |
+| -------- | ------------------- | ------------------------------------------------------ |
+| `GET`    | `/exams`            | Lista provas do professor (filtrável por `?folderId=`) |
+| `POST`   | `/exams`            | Cria prova independente de turma                       |
+| `POST`   | `/exams/:id/assign` | Atribui prova a uma turma                              |
+| `PUT`    | `/exams/:id/folder` | Move prova para uma pasta                              |
+| `DELETE` | `/exams/:id`        | Remove prova                                           |
+
+### 🆕 Pastas de Provas
+
+| Método   | Rota           | Descrição                               |
+| -------- | -------------- | --------------------------------------- |
+| `GET`    | `/folders`     | Lista pastas do professor               |
+| `POST`   | `/folders`     | Cria nova pasta                         |
+| `PUT`    | `/folders/:id` | Renomeia pasta                          |
+| `DELETE` | `/folders/:id` | Remove pasta (provas ficam "Sem Pasta") |
+
+### Compilação & IA
+
+| Método | Rota       | Descrição                          |
+| ------ | ---------- | ---------------------------------- |
+| `POST` | `/compile` | Compila e executa código C         |
+| `WS`   | `/ws`      | WebSocket para terminal interativo |
+
+## 🧩 Seleção Determinística de Variantes
+
+Ao criar provas com múltiplas variantes por questão, o backend seleciona qual variante cada aluno recebe usando **hash FNV-1a**, sem guardar estado no banco:
+
+```
+hashInput = "{StudentID}-{TopicID}-{VariantGroupID}"
+variantIndex = fnv32a(hashInput) % totalVariants
 ```
 
-### Recursos Implementados ✅
+**Garantias:**
 
-- **Compilação segura** de código C com GCC
-- **Execução em sandbox** usando Firejail (quando disponível)
-- **Modo inseguro** com confirmação do usuário (fallback)
-- **Timeout de execução** (3 segundos)
-- **Suporte a input** do usuário para programas interativos
-- **Logs detalhados** para debugging
-- **Limpeza automática** de arquivos temporários
+- O mesmo aluno sempre recebe a mesma variante (determinístico).
+- Distribuição uniforme entre os alunos da turma.
+- Alunos adjacentes recebem variantes diferentes (anti-cola eficaz).
 
-## 🔒 Segurança - Implementação Atual
+## 🤖 Avaliação Automática por IA
 
-### Sistema de Sandbox ✅
+O módulo `GetExamGradingAnalysis` usa um prompt calibrado para **notas justas**:
 
-- **Firejail Integration**: Execução isolada quando disponível
-  - `--quiet`: Execução silenciosa
-  - `--net=none`: Sem acesso à rede
-  - `--private=tmpdir`: Filesystem isolado
-- **Modo Inseguro Controlado**: Fallback com confirmação dupla do usuário
-- **Timeout de Execução**: Limite de 3 segundos para prevenir loops infinitos
-- **Diretório Temporário**: Cada execução usa um diretório isolado
-- **Limpeza Automática**: Remoção de arquivos temporários após execução
+- ✅ **Nota máxima** quando a lógica e a saída estão corretas.
+- ✅ Aceita valores diferentes dos exemplos, desde que a lógica seja correta.
+- ❌ Não desconta por estilo, indentação ou formatação.
+- ❌ Desconto apenas para saída incorreta, lógica errada ou hardcoding.
+- 🛡️ Resistente a prompt injection via comentários no código do aluno.
 
-### Validação de Entrada ✅
+## 🔒 Segurança (Docker-in-Docker Sandbox)
 
-- **JSON Binding**: Validação automática de requests
-- **Timeout Protection**: Processo killado após limite de tempo
-- **Concurrent Safe**: Goroutines para execução não-bloqueante
+O ambiente de compilação e execução foi **totalmente reescrito** para utilizar arquitetura Docker-in-Docker, garantindo isolamento absoluto de código hostil (como fork bombs ou exclusão de binários do sistema).
 
-### Próximas Implementações 🔄
-
-- **Rate limiting** para prevenir abuse
-- **Validação** de tamanho de código
-- **Filtragem** de comandos perigosos
-- **Logs de auditoria** estruturados
+1. **Containers Descartáveis:** Cada execução sobe um container zerado em background. O código C do aluno é copiado para dentro dele. Ao fim da execução, o container é aniquilado.
+2. **Isolamento de Execução:** O binário gerado pelo C nunca roda como `root`. A execução dentro do throwaway container sofre restrições de Kernel rigorosas:
+   - `--user=65534:65534` (Conta `nobody` não tem permissão de escrita no sistema)
+   - `--cap-drop=ALL` & `--security-opt=no-new-privileges` (Trava elevação de privilégio)
+   - `--network=none` (Isolado da internet/rede interna)
+   - `--pids-limit=64` (Aborta _fork bombs_ instantaneamente)
+   - `--memory=128m` (Previne exaustão de memória da máquina host)
+   - Workspace do aluno (onde fica seu código e binário) entra em modo **Read-Only** (`chmod 555`) durante a execução, evitando que arquivos criem scripts ou alterem o próprio executável original.
+3. **Timeout de 10s:** Código em loop infinito é forçosamente abatido pelo Context timeout do backend.
+4. **JWT & Roles:** Todos os endpoints protegidos exigem token válido. Deleções e modificações em massa exigem role `teacher`.
 
 ## 🤝 Contribuição
 
-### Estrutura de Commits
-
 ```
-feat: adiciona nova funcionalidade
-fix: corrige bug existente
-docs: atualiza documentação
-test: adiciona ou corrige testes
-refactor: refatora código sem mudar funcionalidade
-perf: melhora performance
-chore: tarefas de manutenção
+feat: nova funcionalidade
+fix: corrige bug
+docs: documentação
+refactor: sem mudança de comportamento
 ```
-
-### Pull Request Guidelines
-
-1. Fork o repositório
-2. Crie uma branch descritiva
-3. Implemente a funcionalidade com testes
-4. Atualize a documentação se necessário
-5. Submeta o PR com descrição clara
 
 ---
 
 ## 📝 Licença
 
 Este projeto é licenciado sob a **GNU General Public License v2.0 (GPL-2.0)**.
-O CLab Server é um software livre e de código aberto; você pode redistribuí-lo e/ou modificá-lo sob os termos da licença GNU GPL v2 conforme publicada pela Free Software Foundation.

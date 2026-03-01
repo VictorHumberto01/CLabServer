@@ -9,7 +9,6 @@ import (
 	"github.com/vitub/CLabServer/internal/api/routes"
 	"github.com/vitub/CLabServer/internal/banner"
 	"github.com/vitub/CLabServer/internal/initializers"
-	"github.com/vitub/CLabServer/internal/security"
 	"github.com/vitub/CLabServer/internal/ws"
 )
 
@@ -21,20 +20,6 @@ func main() {
 	}
 
 	banner.PrintBanner()
-
-	if !security.IsCommandAvailable("gcc") {
-		log.Fatal("❌ GCC compiler not found. Please install GCC to use this server.")
-	}
-	log.Println("✅ GCC compiler available")
-
-	if !security.IsCommandAvailable("firejail") {
-		if !security.PromptForUnsecureMode() {
-			log.Fatal("Firejail not available and unsecure mode rejected")
-		}
-		log.Println("⚠️  Running in UNSECURE mode - code execution is not sandboxed!")
-	} else {
-		log.Println("✅ Firejail sandbox enabled")
-	}
 
 	if os.Getenv("GIN_MODE") == "" {
 		gin.SetMode(gin.ReleaseMode)
