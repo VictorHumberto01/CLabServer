@@ -7,7 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const Version = "0.3.5-INDEV"
+const Version = "0.4.0-beta"
 
 const (
 	colorReset  = "\033[0m"
@@ -44,7 +44,7 @@ func PrintRoutes(r *gin.Engine) {
 	fmt.Println("📡 API Endpoints:")
 	fmt.Println(strings.Repeat("─", 60))
 
-	order := []string{"Core", "Auth", "Admin", "Users", "Classrooms", "History"}
+	order := []string{"Core", "Auth", "Admin", "Users", "Classrooms", "Exams", "Folders", "History", "Other"}
 	for _, groupName := range order {
 		if routes, ok := groups[groupName]; ok {
 			printRouteGroup(groupName, routes)
@@ -57,7 +57,7 @@ func getRouteGroup(path string) string {
 	switch {
 	case path == "/health" || path == "/ws" || path == "/compile":
 		return "Core"
-	case strings.HasPrefix(path, "/login") || path == "/validate":
+	case strings.HasPrefix(path, "/login") || strings.HasPrefix(path, "/register") || path == "/validate":
 		return "Auth"
 	case strings.HasPrefix(path, "/admin"):
 		return "Admin"
@@ -65,6 +65,10 @@ func getRouteGroup(path string) string {
 		return "Users"
 	case strings.HasPrefix(path, "/classrooms"):
 		return "Classrooms"
+	case strings.HasPrefix(path, "/exams"):
+		return "Exams"
+	case strings.HasPrefix(path, "/folders"):
+		return "Folders"
 	case strings.HasPrefix(path, "/history"):
 		return "History"
 	default:

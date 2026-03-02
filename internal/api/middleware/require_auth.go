@@ -58,6 +58,20 @@ func RequireAuth(c *gin.Context) {
 			c.Abort()
 			return
 		}
+
+		if iatFloat, ok := claims["iat"].(float64); ok {
+			iat := int64(iatFloat)
+			// Allow a small grace period for timezone/clock sync (e.g., 5 seconds)
+			if !user.PasswordChangedAt.IsZero() && iat < (user.PasswordChangedAt.Unix()-5) {
+				c.JSON(http.StatusUnauthorized, dtos.ErrorResponse{
+					Success: false,
+					Error:   "Sessão expirada. Senha foi alterada recentemente.",
+				})
+				c.Abort()
+				return
+			}
+		}
+
 		c.Set("user", user)
 		c.Next()
 	} else {

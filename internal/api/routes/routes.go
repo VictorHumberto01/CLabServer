@@ -58,6 +58,7 @@ func SetupRoutes(r *gin.Engine, hub *ws.Hub) {
 
 		classrooms.POST("/:id/students", handlers.AddStudent)
 		classrooms.DELETE("/:id/students/:studentId", handlers.RemoveStudent)
+		classrooms.POST("/:id/students/:studentId/reset-password", handlers.ResetStudentPassword)
 
 		classrooms.POST("/:id/topics", handlers.CreateTopic)
 		classrooms.GET("/:id/topics", handlers.ListTopics)

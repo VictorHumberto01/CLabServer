@@ -11,6 +11,7 @@ import (
 	"github.com/vitub/CLabServer/internal/initializers"
 	"github.com/vitub/CLabServer/internal/models"
 	"github.com/vitub/CLabServer/internal/ws"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func isTeacherOfClassroom(userID uint, classroom *models.Classroom) bool {
@@ -407,5 +408,65 @@ func ToggleExamMode(c *gin.Context, hub *ws.Hub) {
 	c.JSON(http.StatusOK, dtos.SuccessResponse{
 		Success: true,
 		Message: "Exam mode updated successfully",
+	})
+}
+
+func ResetStudentPassword(c *gin.Context) {
+	classroomID := c.Param("id")
+	studentID := c.Param("studentId")
+
+	user, _ := c.Get("user")
+	currentUser := user.(models.User)
+
+	classroom, err := loadClassroomWithTeachers(classroomID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, dtos.ErrorResponse{Error: "Classroom not found"})
+		return
+	}
+
+	if !isTeacherOfClassroom(currentUser.ID, classroom) {
+		c.JSON(http.StatusForbidden, dtos.ErrorResponse{Error: "Not authorized to manage this classroom"})
+		return
+	}
+
+	// Verify the student actually belongs to this classroom
+	var studentCount int64
+	initializers.DB.Table("classroom_students").Where("classroom_id = ? AND user_id = ?", classroomID, studentID).Count(&studentCount)
+	if studentCount == 0 {
+		c.JSON(http.StatusNotFound, dtos.ErrorResponse{Error: "Student is not in this classroom"})
+		return
+	}
+
+	var student models.User
+	if err := initializers.DB.First(&student, studentID).Error; err != nil {
+		c.JSON(http.StatusNotFound, dtos.ErrorResponse{Error: "Student not found"})
+		return
+	}
+
+	// Generate new random password
+	newPassword := generateSimplePassword()
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), 10)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dtos.ErrorResponse{Error: "Failed to process new password"})
+		return
+	}
+
+	// Update password and PasswordChangedAt to revoke all active JWTs for this student
+	updates := map[string]interface{}{
+		"password":            string(hash),
+		"password_changed_at": time.Now(),
+	}
+
+	if err := initializers.DB.Model(&student).Updates(updates).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, dtos.ErrorResponse{Error: "Failed to reset password"})
+		return
+	}
+
+	c.JSON(http.StatusOK, dtos.SuccessResponse{
+		Success: true,
+		Data: gin.H{
+			"message":     "Password reset successfully",
+			"newPassword": newPassword,
+		},
 	})
 }

@@ -9,7 +9,9 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/creack/pty"
@@ -50,6 +52,8 @@ type Client struct {
 	mu      sync.Mutex
 	ptyFile *os.File
 	cmd     *exec.Cmd
+
+	isClosed atomic.Bool
 }
 
 type WSMsg struct {
@@ -75,6 +79,10 @@ type AnalysisPayload struct {
 }
 
 func (c *Client) sendAIAnalysis(analysis string, status string) {
+	if c.isClosed.Load() {
+		return
+	}
+
 	payload := AnalysisPayload{Status: status, Content: analysis}
 	payloadBytes, _ := json.Marshal(payload)
 
@@ -92,6 +100,8 @@ func (c *Client) sendAIAnalysis(analysis string, status string) {
 
 func (c *Client) readPump() {
 	defer func() {
+		c.isClosed.Store(true)
+
 		c.Hub.unregister <- c
 		c.conn.Close()
 
@@ -280,13 +290,13 @@ func (c *Client) startCompilationAndRun(code string, exerciseID uint, isExamRun 
 	defer cancel()
 
 	security.DefaultManager.SetWorkspaceDir(tmpDir, false)
-	compileCmd, errCmd := security.DefaultManager.CreateSecureCommand(ctx, "gcc", srcPath, "-o", binPath, "-Wall")
+	compileCmd, cleanupCompile, errCmd := security.DefaultManager.CreateSecureCommand(ctx, "gcc", srcPath, "-o", binPath, "-Wall")
 	if errCmd != nil {
 		c.sendOutput("Server Security Error: " + errCmd.Error())
 		return
 	}
 	out, err := compileCmd.CombinedOutput()
-	security.DefaultManager.CleanupContainer()
+	cleanupCompile()
 	if err != nil {
 		errorOutput := string(out)
 
@@ -299,10 +309,16 @@ func (c *Client) startCompilationAndRun(code string, exerciseID uint, isExamRun 
 			if c.Role == "GUEST" {
 				c.sendOutput("\r\n[IA indisponível] Faça login para receber análise da IA.\r\n")
 			} else {
-				analysis, aiErr = ai.GetErrorAnalysis(code, errorOutput)
-				if aiErr == nil {
+				if len(errorOutput) > 20000 {
+					analysis = "## Limite Excedido\n\nNão foi possível analisar o seu código pois a saída de erro ultrapassou o limite de tokens permitidos para a IA."
 					c.sendAIAnalysis(analysis, "error")
-					c.sendOutput("\r\n[AI]: Compilation analysis sent to side panel.\r\n")
+					c.sendOutput("\r\n[AI]: Limite de tamanho de erro excedido.\r\n")
+				} else {
+					analysis, aiErr = ai.GetErrorAnalysis(code, errorOutput)
+					if aiErr == nil {
+						c.sendAIAnalysis(analysis, "error")
+						c.sendOutput("\r\n[AI]: Compilation analysis sent to side panel.\r\n")
+					}
 				}
 			}
 		} else {
@@ -354,11 +370,12 @@ func (c *Client) startCompilationAndRun(code string, exerciseID uint, isExamRun 
 
 	security.DefaultManager.SetWorkspaceDir(tmpDir, true)
 
-	runCmd, errCmd := security.DefaultManager.CreateSecureCommand(runCtx, binPath)
+	runCmd, cleanupRun, errCmd := security.DefaultManager.CreateSecureCommand(runCtx, binPath)
 	if errCmd != nil {
 		c.sendOutput("Server Security Error starting execution: " + errCmd.Error())
 		return
 	}
+	defer cleanupRun()
 	ptyFile, err := pty.Start(runCmd)
 	if err != nil {
 		c.sendOutput("Error starting PTY: " + err.Error())
@@ -377,8 +394,11 @@ func (c *Client) startCompilationAndRun(code string, exerciseID uint, isExamRun 
 		if n > 0 {
 			output := buf[:n]
 			fullOutput = append(fullOutput, output...)
-			c.sendOutput(string(output))
-			c.broadcastMonitor("output_chunk", string(output))
+
+			// Sanitize invalid UTF-8 bytes to prevent websocket 1002 protocol errors
+			cleanOutput := strings.ToValidUTF8(string(output), "\uFFFD")
+			c.sendOutput(cleanOutput)
+			c.broadcastMonitor("output_chunk", cleanOutput)
 		}
 		if err != nil {
 			if err != io.EOF {
@@ -388,7 +408,6 @@ func (c *Client) startCompilationAndRun(code string, exerciseID uint, isExamRun 
 	}
 
 	err = runCmd.Wait()
-	security.DefaultManager.CleanupContainer()
 
 	exitMsg := "\r\nProgram exited."
 	isSuccess := false
@@ -411,7 +430,7 @@ func (c *Client) startCompilationAndRun(code string, exerciseID uint, isExamRun 
 			}
 
 			if err.Error() == "signal: killed" || exitCode == 137 {
-				c.sendOutput(fmt.Sprintf("\r\n\x1b[31m[Runtime Error]: Killed\x1b[0m\r\n\x1b[33mWARNING: Execution was forcibly terminated (SIGKILL). This may be due to malicious code (e.g., Fork Bomb, exceeding memory limits, or illegal system calls).\x1b[0m\r\n"))
+				c.sendOutput("\r\n\x1b[31m[Runtime Error]: Killed\x1b[0m\r\n\x1b[33mWARNING: Execution was forcibly terminated (SIGKILL). This may be due to malicious code (e.g., Fork Bomb, exceeding memory limits, or illegal system calls).\x1b[0m\r\n")
 			} else {
 				if isExamRun {
 					c.sendOutput(fmt.Sprintf("\r\n[Runtime Error]: %v\r\n[MODO PROVA] IA desativada.\r\n", err))
@@ -421,13 +440,19 @@ func (c *Client) startCompilationAndRun(code string, exerciseID uint, isExamRun 
 				} else {
 					c.sendOutput(fmt.Sprintf("\r\n[Runtime Error]: %v\r\nAnalyzing...", err))
 
-					analysis, aiErr := ai.GetErrorAnalysis(code, string(fullOutput))
-					if aiErr != nil {
-						c.sendOutput("\r\nAI Analysis failed: " + aiErr.Error())
+					if len(fullOutput) > 20000 {
+						aiAnalysisStored = "===Analysis===\n# Limite Excedido\n\nNão foi possível analisar o seu código pois a saída de erro ultrapassou o limite de tokens permitidos para a IA."
+						c.sendAIAnalysis(aiAnalysisStored, "error")
+						c.sendOutput("\r\n[AI]: Limite de tamanho de saída excedido.\r\n")
 					} else {
-						aiAnalysisStored = analysis
-						c.sendAIAnalysis(analysis, "error")
-						c.sendOutput("\r\n[AI]: Analysis sent to side panel.\r\n")
+						analysis, aiErr := ai.GetErrorAnalysis(code, string(fullOutput))
+						if aiErr != nil {
+							c.sendOutput("\r\nAI Analysis failed: " + aiErr.Error())
+						} else {
+							aiAnalysisStored = analysis
+							c.sendAIAnalysis(analysis, "error")
+							c.sendOutput("\r\n[AI]: Analysis sent to side panel.\r\n")
+						}
 					}
 				}
 			}
@@ -446,13 +471,19 @@ func (c *Client) startCompilationAndRun(code string, exerciseID uint, isExamRun 
 				c.sendOutput("\r\n[IA indisponível] Faça login para receber análise da IA.\r\n")
 			} else {
 				// Normal code run - perform AI analysis
-				c.sendOutput("\r\nAnalyzing...")
-				analysis, aiErr := ai.GetAIAnalysis(code, string(fullOutput))
-				if aiErr != nil {
-					c.sendOutput("\r\nAI Analysis failed: " + aiErr.Error())
+				if len(fullOutput) > 20000 {
+					c.sendOutput("\r\n[AI]: Output too large for analysis.")
+					aiAnalysisStored = "===Analysis===\n# Limite Excedido\n\nNão foi possível analisar o seu código pois a saída ultrapassou o limite de tokens permitidos para a IA."
+					c.sendAIAnalysis(aiAnalysisStored, "error")
 				} else {
-					aiAnalysisStored = analysis
-					c.sendAIAnalysis(analysis, "success")
+					c.sendOutput("\r\nAnalyzing...")
+					analysis, aiErr := ai.GetAIAnalysis(code, string(fullOutput))
+					if aiErr != nil {
+						c.sendOutput("\r\nAI Analysis failed: " + aiErr.Error())
+					} else {
+						aiAnalysisStored = analysis
+						c.sendAIAnalysis(analysis, "success")
+					}
 				}
 			}
 		} else if exerciseID > 0 {
@@ -469,24 +500,33 @@ func (c *Client) startCompilationAndRun(code string, exerciseID uint, isExamRun 
 					c.sendOutput("\r\n[MODO PROVA]: Submissão recebida.")
 					c.sendOutput("\r\nO professor receberá sua resposta para correção.")
 
-					grading, aiErr := ai.GetExamGradingAnalysis(code, string(fullOutput), exercise.ExpectedOutput, exercise.ExamMaxNote)
-					if aiErr != nil {
-						log.Printf("Exam grading failed: %v", aiErr)
-						aiAnalysisStored = "Erro na correção automática: " + aiErr.Error()
+					if len(fullOutput) > 20000 {
+						aiAnalysisStored = "Erro na correção automática: Saída muito longa excedeu o limite de tokens."
 					} else {
-						gradingJson, _ := json.Marshal(grading)
-						aiAnalysisStored = string(gradingJson)
-
+						grading, aiErr := ai.GetExamGradingAnalysis(code, string(fullOutput), exercise.ExpectedOutput, exercise.ExamMaxNote)
+						if aiErr != nil {
+							log.Printf("Exam grading failed: %v", aiErr)
+							aiAnalysisStored = "Erro na correção automática: " + aiErr.Error()
+						} else {
+							gradingJson, _ := json.Marshal(grading)
+							aiAnalysisStored = string(gradingJson)
+						}
 					}
 					isSuccess = true
 
 				} else {
-					analysis, aiErr := ai.GetAIAnalysis(code, string(fullOutput))
-					if aiErr != nil {
-						c.sendOutput("\r\nAI Analysis failed: " + aiErr.Error())
+					if len(fullOutput) > 20000 {
+						c.sendOutput("\r\n[AI]: Output too large for analysis.")
+						aiAnalysisStored = "===Analysis===\n# Limite Excedido\n\nNão foi possível analisar o seu código pois a saída ultrapassou o limite de tokens permitidos para a IA."
+						c.sendAIAnalysis(aiAnalysisStored, "error")
 					} else {
-						aiAnalysisStored = analysis
-						c.sendAIAnalysis(analysis, "success")
+						analysis, aiErr := ai.GetAIAnalysis(code, string(fullOutput))
+						if aiErr != nil {
+							c.sendOutput("\r\nAI Analysis failed: " + aiErr.Error())
+						} else {
+							aiAnalysisStored = analysis
+							c.sendAIAnalysis(analysis, "success")
+						}
 					}
 					isSuccess = true
 				}
@@ -546,6 +586,10 @@ func (c *Client) startCompilationAndRun(code string, exerciseID uint, isExamRun 
 }
 
 func (c *Client) sendOutput(text string) {
+	if c.isClosed.Load() {
+		return
+	}
+
 	select {
 	case c.send <- []byte(text):
 	default:

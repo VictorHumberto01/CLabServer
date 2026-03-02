@@ -13,16 +13,17 @@ const (
 )
 
 type User struct {
-	ID        uint           `gorm:"primarykey" json:"id"`
-	CreatedAt time.Time      `json:"createdAt"`
-	UpdatedAt time.Time      `json:"updatedAt"`
-	DeletedAt gorm.DeletedAt `gorm:"index" json:"deletedAt"`
-	Name      string         `gorm:"not null" json:"name"`
-	Email     string         `gorm:"unique;index;not null" json:"email"`
-	Matricula string         `gorm:"unique;index" json:"matricula"`
-	Password  string         `gorm:"not null" json:"-"`
-	Role      string         `gorm:"default:USER;not null" json:"role"`
-	History   []History      `json:"history"`
+	ID                uint           `gorm:"primarykey" json:"id"`
+	CreatedAt         time.Time      `json:"createdAt"`
+	UpdatedAt         time.Time      `json:"updatedAt"`
+	DeletedAt         gorm.DeletedAt `gorm:"index" json:"deletedAt"`
+	Name              string         `gorm:"not null" json:"name"`
+	Email             string         `gorm:"unique;index;not null" json:"email"`
+	Matricula         string         `gorm:"unique;index" json:"matricula"`
+	Password          string         `gorm:"not null" json:"-"`
+	PasswordChangedAt time.Time      `json:"passwordChangedAt"`
+	Role              string         `gorm:"default:USER;not null" json:"role"`
+	History           []History      `json:"history"`
 }
 
 func (u *User) isAdmin() bool {

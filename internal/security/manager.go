@@ -3,17 +3,18 @@ package security
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
 type SecurityLevel int
 
 const (
-	SecurityStrict SecurityLevel = iota
-	SecurityMaximum
+	SecurityMaximum SecurityLevel = iota
 )
 
 type SecurityConfig struct {
@@ -33,10 +34,8 @@ type SecurityConfig struct {
 }
 
 type SecurityManager struct {
-	config            SecurityConfig
-	capabilities      map[string]bool
-	lastContainerName string
-	lastRuntime       string
+	config       SecurityConfig
+	capabilities map[string]bool
 }
 
 var DefaultManager *SecurityManager
@@ -48,7 +47,7 @@ func init() {
 func NewSecurityManager() *SecurityManager {
 	sm := &SecurityManager{
 		config: SecurityConfig{
-			Level:            SecurityStrict,
+			Level:            SecurityMaximum,
 			MaxExecutionTime: 30 * time.Second,
 			MaxMemoryMB:      128,
 			MaxCPUPercent:    50,
@@ -66,6 +65,7 @@ func NewSecurityManager() *SecurityManager {
 
 	sm.detectCapabilities()
 	sm.adjustConfigBasedOnCapabilities()
+	go sm.startOrphanCleanupRoutine()
 	return sm
 }
 
@@ -106,42 +106,71 @@ func (sm *SecurityManager) detectCapabilities() {
 	sm.capabilities["can_create_namespace"] = sm.canCreateNamespace()
 }
 
+func (sm *SecurityManager) startOrphanCleanupRoutine() {
+	ticker := time.NewTicker(5 * time.Minute)
+	for range ticker.C {
+		if !sm.capabilities["docker"] && !sm.capabilities["podman"] {
+			continue
+		}
+
+		runtime := "docker"
+		if !sm.capabilities["docker"] && sm.capabilities["podman"] {
+			runtime = "podman"
+		}
+
+		cmd := exec.Command(runtime, "ps", "-q", "-f", "name=clab-sandbox-")
+		out, err := cmd.Output()
+		if err != nil {
+			continue
+		}
+
+		containerIDs := strings.Split(strings.TrimSpace(string(out)), "\n")
+		for _, id := range containerIDs {
+			id = strings.TrimSpace(id)
+			if id == "" {
+				continue
+			}
+
+			inspectCmd := exec.Command(runtime, "inspect", "-f", "{{.State.StartedAt}}", id)
+			inspectOut, err := inspectCmd.Output()
+			if err != nil {
+				continue
+			}
+
+			startedAtStr := strings.TrimSpace(string(inspectOut))
+			startedAt, err := time.Parse(time.RFC3339Nano, startedAtStr)
+			if err == nil {
+				if time.Since(startedAt) > 5*time.Minute {
+					exec.Command(runtime, "rm", "-f", id).Run()
+					log.Printf("SecurityManager Cleanup: Removed orphaned container %s", id)
+				}
+			}
+		}
+	}
+}
+
 func (sm *SecurityManager) adjustConfigBasedOnCapabilities() {
-	if sm.capabilities["in_container"] {
-		if sm.capabilities["docker"] || sm.capabilities["podman"] {
-			sm.config.Level = SecurityMaximum
-			sm.config.UseContainer = true
-		} else {
+	if !sm.capabilities["docker"] && !sm.capabilities["podman"] {
+		if sm.capabilities["in_container"] {
 			panic("CRITICAL SECURITY ERROR: Running inside a container but Docker socket is not available. Mount /var/run/docker.sock to enable sandboxing.")
 		}
-		return
+		panic("CRITICAL SECURITY ERROR: No suitable container runtime (Docker or Podman) found. The server cannot start securely.")
 	}
 
-	if sm.capabilities["docker"] || sm.capabilities["podman"] {
-		sm.config.Level = SecurityMaximum
-		sm.config.UseContainer = true
-	} else if sm.capabilities["firejail"] || sm.capabilities["bubblewrap"] {
-		sm.config.Level = SecurityStrict
-		sm.config.UseContainer = false
-	} else {
-		panic("CRITICAL SECURITY ERROR: No suitable sandboxing tool found (Docker, Podman, Firejail, or Bubblewrap). The server cannot start securely.")
-	}
+	sm.config.Level = SecurityMaximum
+	sm.config.UseContainer = true
 }
 
-func (sm *SecurityManager) CreateSecureCommand(ctx context.Context, executable string, args ...string) (*exec.Cmd, error) {
-	switch sm.config.Level {
-	case SecurityMaximum:
-		return sm.createContainerCommand(ctx, executable, args...)
-	case SecurityStrict:
-		return sm.createSandboxedCommand(ctx, executable, args...)
-	default:
-		return nil, fmt.Errorf("unknown or unsupported security level. Strict scaling required")
+func (sm *SecurityManager) CreateSecureCommand(ctx context.Context, executable string, args ...string) (*exec.Cmd, func(), error) {
+	if sm.config.Level != SecurityMaximum {
+		return nil, nil, fmt.Errorf("unknown or unsupported security level")
 	}
+	return sm.createContainerCommand(ctx, executable, args...)
 }
 
-func (sm *SecurityManager) createContainerCommand(ctx context.Context, executable string, args ...string) (*exec.Cmd, error) {
+func (sm *SecurityManager) createContainerCommand(ctx context.Context, executable string, args ...string) (*exec.Cmd, func(), error) {
 	if !sm.capabilities["docker"] && !sm.capabilities["podman"] {
-		return nil, fmt.Errorf("container runtime not available")
+		return nil, nil, fmt.Errorf("container runtime not available")
 	}
 
 	runtime := "docker"
@@ -165,7 +194,7 @@ func (sm *SecurityManager) createContainerCommand(ctx context.Context, executabl
 
 	createCmd := exec.CommandContext(ctx, runtime, createArgs...)
 	if out, err := createCmd.CombinedOutput(); err != nil {
-		return nil, fmt.Errorf("failed to start sandbox container: %w\n%s", err, string(out))
+		return nil, nil, fmt.Errorf("failed to start sandbox container: %w\n%s", err, string(out))
 	}
 
 	if sm.config.WorkspaceDir != "" {
@@ -175,7 +204,7 @@ func (sm *SecurityManager) createContainerCommand(ctx context.Context, executabl
 			sm.config.WorkspaceDir+"/.", containerName+":"+sm.config.WorkspaceDir)
 		if out, err := cpCmd.CombinedOutput(); err != nil {
 			exec.Command(runtime, "rm", "-f", containerName).Run()
-			return nil, fmt.Errorf("failed to copy workspace: %w\n%s", err, string(out))
+			return nil, nil, fmt.Errorf("failed to copy workspace: %w\n%s", err, string(out))
 		}
 
 		// Determine permissions based on WorkspaceRO
@@ -189,7 +218,7 @@ func (sm *SecurityManager) createContainerCommand(ctx context.Context, executabl
 		chmodCmd := exec.CommandContext(ctx, runtime, "exec", "-u", "root", containerName, "chmod", "-R", perms, sm.config.WorkspaceDir)
 		if out, err := chmodCmd.CombinedOutput(); err != nil {
 			exec.Command(runtime, "rm", "-f", containerName).Run()
-			return nil, fmt.Errorf("failed to set workspace permissions: %w\n%s", err, string(out))
+			return nil, nil, fmt.Errorf("failed to set workspace permissions: %w\n%s", err, string(out))
 		}
 	}
 
@@ -204,96 +233,20 @@ func (sm *SecurityManager) createContainerCommand(ctx context.Context, executabl
 
 	cmd := exec.CommandContext(ctx, runtime, execArgs...)
 
-	sm.lastContainerName = containerName
-	sm.lastRuntime = runtime
-
 	cmd.Cancel = func() error {
 		cleanupCmd := exec.Command(runtime, "rm", "-f", containerName)
 		return cleanupCmd.Run()
 	}
 
-	return cmd, nil
-}
-
-// CleanupContainer removes the last sandbox container after execution.
-func (sm *SecurityManager) CleanupContainer() {
-	if sm.lastContainerName != "" && sm.lastRuntime != "" {
+	cleanup := func() {
 		if sm.config.WorkspaceDir != "" && !sm.config.WorkspaceRO {
 			// Copy the workspace back to host to preserve compiled binaries
-			exec.Command(sm.lastRuntime, "cp", "-a", sm.lastContainerName+":"+sm.config.WorkspaceDir+"/.", sm.config.WorkspaceDir).Run()
+			exec.Command(runtime, "cp", "-a", containerName+":"+sm.config.WorkspaceDir+"/.", sm.config.WorkspaceDir).Run()
 		}
-		exec.Command(sm.lastRuntime, "rm", "-f", sm.lastContainerName).Run()
-		sm.lastContainerName = ""
-		sm.lastRuntime = ""
-	}
-}
-
-func (sm *SecurityManager) createSandboxedCommand(ctx context.Context, executable string, args ...string) (*exec.Cmd, error) {
-	if sm.capabilities["firejail"] {
-		return sm.createFirejailCommand(ctx, executable, args...)
-	} else if sm.capabilities["bubblewrap"] {
-		return sm.createBubblewrapCommand(ctx, executable, args...)
+		exec.Command(runtime, "rm", "-f", containerName).Run()
 	}
 
-	return nil, fmt.Errorf("No sandbox tool available for Strict security mode")
-}
-
-func (sm *SecurityManager) createFirejailCommand(ctx context.Context, executable string, args ...string) (*exec.Cmd, error) {
-	firejailArgs := []string{
-		"--quiet",
-		"--seccomp",       // Enable seccomp filtering
-		"--nonetwork",     // Disable network
-		"--noroot",        // Don't run as root
-		"--caps.drop=all", // Drop all capabilities
-		"--rlimit-cpu=30", // CPU time limit
-		"--rlimit-as=" + fmt.Sprintf("%d", sm.config.MaxMemoryMB*1024*1024),      // Memory limit
-		"--rlimit-nproc=" + fmt.Sprintf("%d", sm.config.MaxProcesses),            // Process limit
-		"--rlimit-fsize=" + fmt.Sprintf("%d", sm.config.MaxFileSizeMB*1024*1024), // File size limit
-		"--private-dev", // Restrict /dev
-		"--private-tmp", // Isolate /tmp
-		"--read-only=/",
-		"--private-etc=resolv.conf,hostname,hosts", // Hide host /etc entirely
-	}
-
-	if sm.config.WorkspaceDir != "" {
-		if sm.config.WorkspaceRO {
-			firejailArgs = append(firejailArgs, "--read-only="+sm.config.WorkspaceDir)
-		} else {
-			firejailArgs = append(firejailArgs, "--whitelist="+sm.config.WorkspaceDir)
-		}
-	}
-
-	firejailArgs = append(firejailArgs, executable)
-	firejailArgs = append(firejailArgs, args...)
-	return exec.CommandContext(ctx, "firejail", firejailArgs...), nil
-}
-
-func (sm *SecurityManager) createBubblewrapCommand(ctx context.Context, executable string, args ...string) (*exec.Cmd, error) {
-	bwrapArgs := []string{
-		"--ro-bind", "/usr", "/usr",
-		"--ro-bind", "/lib", "/lib",
-		"--ro-bind", "/lib64", "/lib64",
-		"--ro-bind", "/bin", "/bin",
-		"--ro-bind", "/sbin", "/sbin",
-		"--tmpfs", "/tmp",
-		"--proc", "/proc",
-		"--dev", "/dev",
-		"--unshare-net",     // No network
-		"--unshare-pid",     // PID namespace
-		"--die-with-parent", // Die when parent dies
-	}
-
-	if sm.config.WorkspaceDir != "" {
-		if sm.config.WorkspaceRO {
-			bwrapArgs = append(bwrapArgs, "--ro-bind", sm.config.WorkspaceDir, sm.config.WorkspaceDir)
-		} else {
-			bwrapArgs = append(bwrapArgs, "--bind", sm.config.WorkspaceDir, sm.config.WorkspaceDir)
-		}
-	}
-
-	bwrapArgs = append(bwrapArgs, executable)
-	bwrapArgs = append(bwrapArgs, args...)
-	return exec.CommandContext(ctx, "bwrap", bwrapArgs...), nil
+	return cmd, cleanup, nil
 }
 
 func (sm *SecurityManager) SetWorkspaceDir(dir string, readOnly bool) {

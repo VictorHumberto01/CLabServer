@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	"bytes"
 	"context"
 	"log"
 	"os"
@@ -13,6 +14,43 @@ import (
 	"github.com/vitub/CLabServer/internal/models"
 	"github.com/vitub/CLabServer/internal/security"
 )
+
+const MaxOutputSize = 1024 * 1024 // 1MB
+
+// LimitedWriter caps the amount of data written and discards the rest
+type LimitedWriter struct {
+	buf       bytes.Buffer
+	size      int
+	limit     int
+	truncated bool
+}
+
+func (w *LimitedWriter) Write(p []byte) (n int, err error) {
+	if w.size >= w.limit {
+		if !w.truncated {
+			w.buf.WriteString("\n[Output truncated: Exceeded 1MB limit]\n")
+			w.truncated = true
+		}
+		return len(p), nil
+	}
+
+	writeLen := len(p)
+	if w.size+writeLen > w.limit {
+		writeLen = w.limit - w.size
+	}
+
+	n, err = w.buf.Write(p[:writeLen])
+	w.size += n
+	if w.size >= w.limit {
+		w.buf.WriteString("\n[Output truncated: Exceeded 1MB limit]\n")
+		w.truncated = true
+	}
+	return len(p), err // Return len(p) to avoid short write errors
+}
+
+func (w *LimitedWriter) String() string {
+	return w.buf.String()
+}
 
 func CompileAndRun(req models.CompileRequest) models.CompileResponse {
 	log.Println("Starting compilation process")
@@ -38,7 +76,7 @@ func CompileAndRun(req models.CompileRequest) models.CompileResponse {
 	defer cancel()
 
 	security.DefaultManager.SetWorkspaceDir(tmpDir, false)
-	compileCmd, err := security.DefaultManager.CreateSecureCommand(ctx, "gcc", srcPath, "-o", binPath, "-Wall", "-Wextra")
+	compileCmd, cleanupCompile, err := security.DefaultManager.CreateSecureCommand(ctx, "gcc", srcPath, "-o", binPath, "-Wall", "-Wextra")
 	if err != nil {
 		log.Printf("Failed to create secure compile command: %v", err)
 		return models.CompileResponse{Error: "server security configuration error creating compile sandbox"}
@@ -46,7 +84,7 @@ func CompileAndRun(req models.CompileRequest) models.CompileResponse {
 	compileCmd.Dir = tmpDir
 	log.Printf("Compiling with command: gcc %s -o %s -Wall -Wextra", srcPath, binPath)
 	compileOut, err := compileCmd.CombinedOutput()
-	security.DefaultManager.CleanupContainer()
+	cleanupCompile()
 
 	if err != nil {
 		log.Printf("Compilation failed: %v\nOutput: %s", err, string(compileOut))
@@ -80,11 +118,12 @@ func CompileAndRun(req models.CompileRequest) models.CompileResponse {
 
 	security.DefaultManager.SetWorkspaceDir(tmpDir, true)
 
-	runCmd, err := security.DefaultManager.CreateSecureCommand(runCtx, binPath)
+	runCmd, cleanupRun, err := security.DefaultManager.CreateSecureCommand(runCtx, binPath)
 	if err != nil {
 		log.Printf("Failed to create secure run command: %v", err)
 		return models.CompileResponse{Error: "server security configuration error creating execution sandbox"}
 	}
+	defer cleanupRun()
 	runCmd.Dir = tmpDir
 
 	var inputData string
@@ -104,7 +143,6 @@ func CompileAndRun(req models.CompileRequest) models.CompileResponse {
 	}
 
 	runOut, err := runCmd.CombinedOutput()
-	security.DefaultManager.CleanupContainer()
 
 	if err != nil {
 		log.Printf("Execution failed: %v\nOutput: %s", err, string(runOut))
@@ -125,10 +163,17 @@ func CompileAndRun(req models.CompileRequest) models.CompileResponse {
 			errorMsg = err.Error()
 		}
 
-		errorAnalysis, analysisErr := ai.GetErrorAnalysis(req.Code, errorMsg)
-		if analysisErr != nil {
-			log.Printf("Error analysis failed: %v", analysisErr)
-			errorAnalysis = "===Analysis===\n# Erro de Execução\n\nO programa compilou com sucesso, mas encontrou um erro durante a execução. Verifique a divisão por zero, acesso a memória inválida, ou loops infinitos."
+		var errorAnalysis string
+		var analysisErr error
+
+		if len(errorMsg) > 20000 {
+			errorAnalysis = "===Analysis===\n# Limite Excedido\n\nNão foi possível analisar o seu código pois a saída de erro ultrapassou o limite de tokens permitidos para a IA."
+		} else {
+			errorAnalysis, analysisErr = ai.GetErrorAnalysis(req.Code, errorMsg)
+			if analysisErr != nil {
+				log.Printf("Error analysis failed: %v", analysisErr)
+				errorAnalysis = "===Analysis===\n# Erro de Execução\n\nO programa compilou com sucesso, mas encontrou um erro durante a execução. Verifique a divisão por zero, acesso a memória inválida, ou loops infinitos."
+			}
 		}
 
 		return models.CompileResponse{
@@ -137,10 +182,17 @@ func CompileAndRun(req models.CompileRequest) models.CompileResponse {
 		}
 	}
 
-	analysis, err := ai.GetAIAnalysis(req.Code, string(runOut))
-	if err != nil {
-		log.Printf("AI analysis failed: %v", err)
-		analysis = "===Analysis===\n# Análise do Código\n\nDesculpe, não foi possível gerar a análise detalhada do código neste momento. O programa compilou e executou com sucesso."
+	var analysis string
+	var errAI error
+
+	if len(string(runOut)) > 20000 {
+		analysis = "## Limite Excedido\n\nNão foi possível analisar o seu código pois a saída ultrapassou o limite de tokens permitidos para a IA."
+	} else {
+		analysis, errAI = ai.GetAIAnalysis(req.Code, string(runOut))
+		if errAI != nil {
+			log.Printf("AI analysis failed: %v", errAI)
+			analysis = "===Analysis===\n# Análise do Código\n\nDesculpe, não foi possível gerar a análise detalhada do código neste momento. O programa compilou e executou com sucesso."
+		}
 	}
 
 	log.Printf("Program executed successfully. Output length: %d", len(string(runOut)))

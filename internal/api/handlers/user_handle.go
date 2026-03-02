@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"crypto/rand"
 	"errors"
+	"math/big"
 	"net/http"
 	"os"
 	"strings"
@@ -55,7 +57,8 @@ func LoginWithToken(c *gin.Context) {
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"sub": users.ID,
-		"exp": time.Now().Add(time.Hour * 24 * 30).Unix(),
+		"iat": time.Now().Unix(),
+		"exp": time.Now().Add(time.Hour * 24).Unix(),
 	})
 
 	tokenString, err := token.SignedString([]byte(os.Getenv("JWT_SECRET")))
@@ -112,7 +115,8 @@ func LoginMatricula(c *gin.Context) {
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"sub": user.ID,
-		"exp": time.Now().Add(time.Hour * 24 * 30).Unix(),
+		"iat": time.Now().Unix(),
+		"exp": time.Now().Add(time.Hour * 24).Unix(),
 	})
 
 	tokenString, err := token.SignedString([]byte(os.Getenv("JWT_SECRET")))
@@ -172,7 +176,8 @@ func LoginWithCookie(c *gin.Context) {
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"sub": users.ID,
-		"exp": time.Now().Add(time.Hour * 24 * 30).Unix(),
+		"iat": time.Now().Unix(),
+		"exp": time.Now().Add(time.Hour * 24).Unix(),
 	})
 
 	tokenString, err := token.SignedString([]byte(os.Getenv("JWT_SECRET")))
@@ -247,6 +252,7 @@ func UpdateProfile(c *gin.Context) {
 			return
 		}
 		updates["password"] = string(hash)
+		updates["password_changed_at"] = time.Now()
 	}
 
 	if len(updates) == 0 {
@@ -384,8 +390,8 @@ func generateSimplePassword() string {
 	const chars = "abcdefghijklmnopqrstuvwxyz0123456789"
 	result := make([]byte, 6)
 	for i := range result {
-		result[i] = chars[time.Now().UnixNano()%int64(len(chars))]
-		time.Sleep(time.Nanosecond)
+		n, _ := rand.Int(rand.Reader, big.NewInt(int64(len(chars))))
+		result[i] = chars[n.Int64()]
 	}
 	return string(result)
 }
